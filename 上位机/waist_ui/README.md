@@ -1,10 +1,10 @@
 # 康复医疗仪表盘
 
-基于PySide6和QFluentWidgets的康复医疗设备监控上位机系统，支持ESP8266通信和实时数据监测。
+基于PySide6和QFluentWidgets的康复医疗设备监控上位机系统，通过MQTT与下位机（STM32+ESP01S）通信，支持实时数据监测和力控指令下发。
 
 ## 项目简介
 
-本项目是一个现代化的康复医疗仪表盘系统，用于实时监测和控制康复设备。系统采用模块化设计，界面美观易用，支持与ESP8266设备进行TCP Socket通信，实现力控参数调节、电机推杆控制等功能。
+本项目是一个现代化的康复医疗仪表盘系统，用于实时监测和控制康复设备。系统采用模块化设计，界面美观易用，通过MQTT Broker与STM32+ESP01S设备节点通信，实现力控参数调节、电机推杆控制等功能。
 
 ### 主要功能
 
@@ -19,9 +19,9 @@
 
 - **GUI框架**：PySide6 (Qt for Python)
 - **UI组件库**：QFluentWidgets
-- **通信协议**：TCP Socket (自定义二进制协议)
+- **通信协议**：MQTT (JSON)，通过EMQX公共Broker中转
 - **编程语言**：Python 3.10+
-- **下位机**：ESP8266 NodeMCU (Arduino)
+- **下位机**：STM32L4 + ESP01S (AT固件) + 四路推杆
 
 ## 项目结构
 
@@ -42,10 +42,10 @@ waist_ui/
 │   └── user_custom.py             # UserCustomInterface（用户自定义界面）
 ├── communication/                  # 通信模块
 │   ├── __init__.py
-│   ├── tcp_server.py              # TCP服务器（接收ESP8266连接）
+│   ├── mqtt_client.py              # MQTT客户端（连接Broker）
 │   ├── protocol.py                # 通信协议定义
 │   ├── communication_manager.py    # 通信管理器
-│   └── esp8266_client.py          # TCP客户端（旧版本）
+│   └── tcp_server.py              # TCP服务器（已废弃，保留兼容）
 ├── data/                          # 数据处理模块
 │   ├── __init__.py
 │   └── sensor_data.py             # 传感器数据处理
@@ -63,12 +63,12 @@ waist_ui/
 
 - Python 3.10 或更高版本
 - Windows 操作系统（推荐）
-- 网络连接（用于ESP8266通信）
+- 网络连接（用于MQTT通信）
 
 ### 安装依赖
 
 ```bash
-pip install PySide6 qfluentwidgets
+pip install PySide6 qfluentwidgets paho-mqtt
 ```
 
 ### 运行程序
@@ -94,8 +94,8 @@ python main.py
 **右侧区域 - 指挥控制中心**
 
 1. **连接状态**
-   - 显示设备连接状态（已连接/未连接）
-   - 显示设备IP地址
+   - 显示MQTT连接状态（已连接/未连接）
+   - 显示Broker地址
 
 2. **力控参数调节**
    - 四个滑动条分别控制LF、LB、RF、RB四个通道
@@ -118,87 +118,63 @@ python main.py
 
 ## 通信协议
 
-### 数据包格式
+### MQTT 控制指令（JSON）
 
+**Topic**: `waist/device001/cmd`（QoS 1）
+
+**JSON格式**:
+```json
+{
+    "cmd": "set_force",
+    "device_id": "device001",
+    "RB": 0.0,
+    "RF": 0.0,
+    "LB": 61.0,
+    "LF": 42.0
+}
 ```
-[起始符][长度][类型][数据][校验和][结束符]
-  0xAA    1字节  1字节  N字节   1字节   0x55
-```
 
-### 命令类型 (上位机 → ESP8266)
-
-| 命令码 | 功能 |
-|--------|------|
-| 0x01 | 设置力控参数 |
-| 0x02 | 获取状态 |
-| 0x03 | 系统复位 |
-| 0x04 | 参数自动辨识 |
-
-### 数据类型 (ESP8266 → 上位机)
-
-| 数据码 | 功能 |
-|--------|------|
-| 0x10 | 传感器/电机数据 |
-| 0x11 | 状态数据 |
-| 0x12 | 响应数据 |
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| cmd | string | 指令类型，当前仅支持 `set_force` |
+| device_id | string | 目标设备ID |
+| RB | float | 右后推杆目标值 (0-100) |
+| RF | float | 右前推杆目标值 (0-100) |
+| LB | float | 左后推杆目标值 (0-100) |
+| LF | float | 左前推杆目标值 (0-100) |
 
 ### 通信流程
 
-**控制命令（下行）：**
 ```
-UI → CommunicationManager → TCPServer → ESP8266
-```
-
-**数据接收（上行）：**
-```
-ESP8266 → TCPServer → Protocol → CommunicationManager → UI
+UI → MQTT Broker (broker.emqx.io:1883) → ESP01S → STM32 → PID控制 → 四路推杆
 ```
 
-## ESP8266配置
+### 旧版二进制协议（已废弃，保留兼容）
 
-### 硬件
+数据包格式（仅用于旧版TCP直连模式）：
+```
+[起始符][功能][长度][4×float数据][校验][结束符]
+  0xA5   0xCC  0x10  16字节     ~校验  0x5A
+```
 
-- ESP8266 NodeMCU
-- 连接2.4G WiFi热点
+## MQTT Broker 配置
 
-### 烧录
+| 参数 | 值 |
+|------|-----|
+| Broker地址 | broker.emqx.io |
+| 端口 | 1883 |
+| 客户端ID | waist_ui_xxx（自动生成） |
+| 发布Topic | waist/device001/cmd |
+| 订阅Topic | 待定（数据上报） |
+| QoS | 1 |
 
-1. 使用Arduino IDE打开 `ESP8266CODE/mian.cpp`
-2. 修改WiFi配置：
-   ```cpp
-   const char* WIFI_SSID = "你的WiFi名称";
-   const char* WIFI_PASSWORD = "你的WiFi密码";
-   ```
-3. 修改上位机IP：
-   ```cpp
-   const char* SERVER_HOST = "192.168.x.x";  // 上位机IP地址
-   ```
-4. 烧录到ESP8266
+## 下位机配置
 
-### 串口命令
+下位机为STM32L4 + ESP01S（AT固件 v2.3.0），详见 `STM32L4_waist/README.md`。
 
-| 命令 | 功能 |
-|------|------|
-| STATUS | 查看系统状态 |
-| RESET | 重启设备 |
-| HELP | 显示帮助 |
-
-## 当前状态
-
-| 功能 | 状态 |
-|------|------|
-| ESP8266 WiFi连接 | ✅ 正常 |
-| TCP通信 | ✅ 已建立 |
-| 上位机运行 | ✅ 正常 |
-| 通信协议 | ✅ 数据已到达ESP8266 |
-| 命令解析 | ✅ 正在验证 |
-
-## 配置信息
-
-- ESP8266 WiFi: WIFI305 / 2024305YSU
-- 上位机IP: 192.168.3.25
-- ESP8266 IP: 192.168.65.99
-- TCP端口: 8080
+- STM32通过USART1发送AT指令控制ESP01S
+- ESP01S连接WiFi后，通过MQTT订阅 `waist/device001/cmd` 接收控制指令
+- STM32解析JSON后通过PID闭环控制四路推杆
 
 ## 开发规范
 
@@ -223,9 +199,18 @@ ESP8266 → TCPServer → Protocol → CommunicationManager → UI
 - [ ] 趣味游戏功能
 - [ ] 用户自定义功能
 - [ ] 数据记录和导出
-- [ ] 自动重连机制
+- [ ] MQTT自动重连机制
+- [ ] 下位机状态上报订阅
 
 ## 更新日志
+
+### v2.0.0 (2026-05-13)
+
+**重大架构变更：**
+- 通信方式从 TCP直连 改为 MQTT（Broker中转）
+- 下位机从 ESP8266 Arduino固件 改为 STM32L4+ESP01S AT固件
+- 指令格式从 二进制协议 改为 JSON over MQTT
+- 引入 EMQX Public Broker (broker.emqx.io:1883)
 
 ### v1.1.0 (2026-03-05)
 
@@ -234,12 +219,6 @@ ESP8266 → TCPServer → Protocol → CommunicationManager → UI
 - 添加通信日志界面
 - 添加命令发送功能
 - 完善协议解析
-
-**ESP8266端：**
-- Arduino版本实现
-- WiFi连接
-- TCP客户端
-- 命令协议解析
 
 ### v1.0.0 (2026-02-05)
 
