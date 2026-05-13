@@ -5,13 +5,13 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
-#include "usart.h" 
+#include "usart.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "driver_log.h"
 
 #define RX_BUF_SIZE 256
-//#define ESP8266_DEBUG
+#define ESP8266_DEBUG
 
 // 连接状态
 typedef enum {
@@ -32,24 +32,28 @@ typedef enum {
 
 typedef struct {
     UART_HandleTypeDef* huart;
-    
+
     // 缓冲区相关
     uint8_t rx_buf[RX_BUF_SIZE];
     volatile uint16_t rx_len;
     uint8_t temp_byte;            // 单字节接收缓存
-    
+
     // 状态与同步
     volatile uint8_t link_id;     // 连接ID (0xFF 无连接)
     volatile ESP8266_CmdState cmd_state; // 当前AT指令的状态
     const char* expected_resp;    // 当前期待的AT指令回复字符串 (如 "OK")
-    
+
+    // MQTT 消息行缓冲（中断写入，任务读取）
+    volatile uint8_t mqtt_line_ready;
+    char mqtt_line_buf[512];
+
 } ESP8266_Device;
 
 typedef struct {
     const char* ssid;
     const char* pwd;
     uint8_t channel;
-    uint8_t encryption; 
+    uint8_t encryption;
 } ESP8266_AP_Config;
 
 /* 接口函数 */
@@ -66,6 +70,12 @@ void ESP8266_OnDataReceived(ESP8266_Device* dev, uint8_t link_id, uint8_t* data,
 void ESP8266_Receive_IT_Start(ESP8266_Device* dev);
 void ESP8266_UART_IDLE_Handler(ESP8266_Device* dev);
 // 新增：Rx回调处理数据搬运
-void ESP8266_RxCpltCallback(ESP8266_Device* dev); 
+void ESP8266_RxCpltCallback(ESP8266_Device* dev);
+
+/* MQTT 相关接口函数 */
+uint8_t ESP8266_ConnectAP(ESP8266_Device *dev, const char *ssid, const char *pwd);
+uint8_t ESP8266_ConnectMQTT(ESP8266_Device *dev, const char *broker, uint16_t port, const char *client_id, const char *username, const char *password, uint8_t scheme);
+uint8_t ESP8266_Subscribe(ESP8266_Device *dev, const char *topic, uint8_t qos);
+void ESP8266_MQTT_HandleReceivedLine(ESP8266_Device *dev, char *line);
 
 #endif

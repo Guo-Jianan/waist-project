@@ -65,7 +65,7 @@ QueueSetHandle_t g_control_set;
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 128 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for pidControlTask */
@@ -151,33 +151,44 @@ void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
 #ifdef STACK_PRINT
-	UBaseType_t uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL); 
+	UBaseType_t uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
 #endif
+
   ESP8266_Init(&esp8266, &huart1);
-  ESP8266_AP_Config ap_config = {
-      .ssid = "EnvMonitor",
-      .pwd = "12345678",
-      .channel = 6,
-      .encryption = 2
-  };
-  ESP8266_InitAP(&esp8266, &ap_config);
-  ESP8266_CreateTCPServer(&esp8266, 8080);
-	float dt = 0;
+
+  if (ESP8266_ConnectAP(&esp8266, "rickWiFi", "12345678") == ESP8266_OK) {
+      DEBUG_INFO("WiFi connected.\r\n");
+  } else {
+      DEBUG_ERROR("WiFi connect failed.\r\n");
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(5000));  // 等待DHCP获取IP
+
+  if (ESP8266_ConnectMQTT(&esp8266, "broker.emqx.io", 1883,
+                          "ESP-01S", "ESP-01S", "admin", 1) == ESP8266_OK) {
+      DEBUG_INFO("MQTT broker connected.\r\n");
+  } else {
+      DEBUG_ERROR("MQTT broker connect failed.\r\n");
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(500));
+
+  ESP8266_Subscribe(&esp8266, "waist/device001/cmd", 1);
+
   /* Infinite loop */
   for (;;)
   {
     HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-		dt++;
-		if(dt > 100)
-			dt = 0;
-		// 如果连接成功上传数据
-		if(esp8266.link_id != 0xFF) {
-			Upload_Data(&esp8266, dt, dt/2, dt/4, dt/6);
+
+    if (esp8266.mqtt_line_ready) {
+        ESP8266_MQTT_HandleReceivedLine(&esp8266, esp8266.mqtt_line_buf);
+        esp8266.mqtt_line_ready = 0;
     }
+
 #ifdef STACK_PRINT
     uint32_t ulStackRemaining = uxHighWaterMark * 4;
-		DEBUG_INFO("%d bytes short of overflow.\r\n", ulStackRemaining);
-#endif		
+    DEBUG_INFO("%d bytes short of overflow.\r\n", ulStackRemaining);
+#endif
     vTaskDelay(500);
   }
   /* USER CODE END StartDefaultTask */
@@ -194,19 +205,19 @@ void ControlFunction(void *argument)
 {
   /* USER CODE BEGIN ControlFunction */
 #ifdef STACK_PRINT
-	UBaseType_t uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL); 
+	UBaseType_t uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
 #endif
   TickType_t xLastWakeTime;
   const TickType_t xTaskPeriod = pdMS_TO_TICKS(10);
   xLastWakeTime = xTaskGetTickCount();
 	ActuatorTarget current_target = {50.0,50.0,50.0,50.0};
 	QueueSetMemberHandle_t xQueueHandle;
-	//		
+	//
   /* Infinite loop */
   for (;;)
   {
 		xQueueHandle = xQueueSelectFromSet(g_control_set, 0);
-		
+
 		/* 读队列句柄得到数据,处理数据 */
 		if (xQueueHandle == get_shellQueueHandle())
 		{
@@ -222,7 +233,7 @@ void ControlFunction(void *argument)
 																			current_target.RfTarget,
 																			current_target.LfTarget,
 																			current_target.LbTarget);
-		}		
+		}
 
 //		if (xQueueReceive(get_shellQueueHandle(), &current_target, 0) == pdPASS) {
 //			DEBUG_INFO("Target Received: %.2f\n", current_target.RbTarget);
@@ -230,7 +241,7 @@ void ControlFunction(void *argument)
       PID_SetTarget(&ActuatorRb_Pid, current_target.RbTarget);
       PID_Compute(&ActuatorRb_Pid, ActuatorRB.current_pos_mm);
       Actuator_Control(&ActuatorRB, ActuatorRb_Pid.output);
-		
+
       PID_SetTarget(&ActuatorRf_Pid, current_target.RfTarget);
       PID_Compute(&ActuatorRf_Pid, ActuatorRF.current_pos_mm);
       Actuator_Control(&ActuatorRF, ActuatorRf_Pid.output);
@@ -254,4 +265,3 @@ void ControlFunction(void *argument)
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
 /* USER CODE END Application */
-

@@ -106,6 +106,22 @@ void ESP8266_UART_IDLE_Handler(ESP8266_Device *dev)
                 dev->cmd_state = CMD_Error;
             }
         }
+
+        // ---------------- 4. MQTT 订阅消息缓存（ISR只做拷贝） ----------------
+        if (dev->expected_resp == NULL && !dev->mqtt_line_ready) {
+            char *p_mqtt = strstr((const char *)dev->rx_buf, "+MQTTSUBRECV:");
+            if (p_mqtt) {
+                char *end = strchr(p_mqtt, '\n');
+                size_t len = end ? (size_t)(end - p_mqtt) : strlen(p_mqtt);
+                if (len < sizeof(dev->mqtt_line_buf) - 1) {
+                    memcpy(dev->mqtt_line_buf, p_mqtt, len);
+                    dev->mqtt_line_buf[len] = '\0';
+                    dev->mqtt_line_ready = 1;
+                }
+            }
+        }
+
+        dev->rx_len = 0;  // 本帧处理完毕，清空缓冲区准备下一帧
     }
 }
 
@@ -157,6 +173,7 @@ static ESP8266_Status ESP8266_SendATCommand(ESP8266_Device *dev, const char *cmd
 
     // 4. 超时处理
     dev->expected_resp = NULL;
+    dev->cmd_state = CMD_IDLE;
     return ESP8266_ERROR_TIMEOUT;
 }
 
@@ -201,6 +218,7 @@ static ESP8266_Status ESP8266_SendATCommandIdx(ESP8266_Device *dev, const char *
 
     // 4. 超时处理
     dev->expected_resp = NULL;
+    dev->cmd_state = CMD_IDLE;
     return ESP8266_ERROR_TIMEOUT;
 }
 
@@ -212,17 +230,18 @@ ESP8266_Status ESP8266_Init(ESP8266_Device *dev, UART_HandleTypeDef *huart)
     dev->link_id = 0xFF;
     dev->expected_resp = NULL;
     dev->cmd_state = CMD_IDLE;
+    dev->mqtt_line_ready = 0;
+    memset(dev->mqtt_line_buf, 0, sizeof(dev->mqtt_line_buf));
 
     ESP8266_ClearRxBuffer(dev);
-    ESP8266_Receive_IT_Start(dev); // 启动中断
+    ESP8266_Receive_IT_Start(dev);
 
-    // 复位一下比较稳妥 (可选)
-    // ESP8266_SendATCommand(dev, "AT+RST\r\n", "ready", 2000);
+    ESP8266_SendATCommand(dev, "AT+RST\r\n", "ready", 3000);
 
-    if (ESP8266_SendATCommand(dev, "AT\r\n", "OK", 500) != ESP8266_OK)
+    if (ESP8266_SendATCommand(dev, "AT\r\n", "OK", 1000) != ESP8266_OK)
         return ESP8266_ERROR_RESPONSE;
 
-    ESP8266_SendATCommand(dev, "ATE0\r\n", "OK", 500);
+    ESP8266_SendATCommand(dev, "ATE0\r\n", "OK", 1000);
     return ESP8266_OK;
 }
 
@@ -344,4 +363,127 @@ void Upload_Data(ESP8266_Device *dev, float rb, float rf, float lb, float lf)
     // float 数据中经常包含 0x00，不能当做字符串发送 (不能用 strlen)
     // 必须调用支持指定长度的发送函数
     ESP8266_SendDataIdx(dev, (char *)send_buf, sizeof(send_buf));
+}
+
+// ---------------- MQTT 功能函数 ----------------
+
+uint8_t ESP8266_ConnectAP(ESP8266_Device *dev, const char *ssid, const char *pwd)
+{
+    ESP8266_SendATCommand(dev, "AT+CWMODE=1\r\n", "OK", 2000);
+
+    char cmd[128];
+    sprintf(cmd, "AT+CWJAP=\"%s\",\"%s\"\r\n", ssid, pwd);
+    return ESP8266_SendATCommand(dev, cmd, "OK", 10000);
+}
+
+uint8_t ESP8266_ConnectMQTT(ESP8266_Device *dev, const char *broker, uint16_t port,
+                             const char *client_id, const char *username, const char *password,
+                             uint8_t scheme)
+{
+    char cmd[256];
+    uint8_t retry;
+
+    sprintf(cmd, "AT+MQTTUSERCFG=0,%d,\"%s\",\"%s\",\"%s\",0,0,\"\"\r\n",
+            scheme,
+            client_id,
+            username ? username : "",
+            password ? password : "");
+
+    for (retry = 0; retry < 3; retry++) {
+        if (ESP8266_SendATCommand(dev, cmd, "OK", 5000) == ESP8266_OK)
+            break;
+        DEBUG_WARNING("MQTT USERCFG retry %d/3\r\n", retry + 1);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+    if (retry >= 3)
+        return ESP8266_ERROR_RESPONSE;
+
+    sprintf(cmd, "AT+MQTTCONN=0,\"%s\",%d,0\r\n", broker, port);
+
+    for (retry = 0; retry < 3; retry++) {
+        if (ESP8266_SendATCommand(dev, cmd, "OK", 10000) == ESP8266_OK)
+            break;
+        DEBUG_WARNING("MQTT CONN retry %d/3\r\n", retry + 1);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+    if (retry >= 3)
+        return ESP8266_ERROR_RESPONSE;
+
+    return ESP8266_OK;
+}
+
+uint8_t ESP8266_Subscribe(ESP8266_Device *dev, const char *topic, uint8_t qos)
+{
+    char cmd[128];
+    sprintf(cmd, "AT+MQTTSUB=0,\"%s\",%d\r\n", topic, qos);
+    return ESP8266_SendATCommand(dev, cmd, "OK", 5000);
+}
+
+void ESP8266_MQTT_HandleReceivedLine(ESP8266_Device *dev, char *line)
+{
+    char *p = strstr(line, "+MQTTSUBRECV:");
+    if (!p) return;
+
+    // 跳过 "+MQTTSUBRECV:"
+    p += 13;
+
+    // 跳过 link_id
+    char *comma = strchr(p, ',');
+    if (!comma) return;
+    p = comma + 1;
+
+    // 跳过 topic（引号字符串）
+    if (*p == '"') {
+        p++;
+        p = strchr(p, '"');
+        if (!p) return;
+        p++;
+    }
+
+    // 跳过逗号和长度
+    comma = strchr(p, ',');
+    if (!comma) return;
+    p = comma + 1;
+
+    // 到达 payload 前最后的逗号
+    comma = strchr(p, ',');
+    if (!comma) return;
+    p = comma + 1;
+
+    // payload 有两种格式：
+    //   A) 带引号+转义: "{\"cmd\":...}"
+    //   B) 裸JSON:       {"cmd":...}
+    if (*p == '"') {
+        // 格式A：跳过引号，找末尾引号，去转义
+        p++;
+        char *end = strrchr(p, '"');
+        if (end) *end = '\0';
+        char *src = p, *dst = p;
+        while (*src) {
+            if (*src == '\\') src++;
+            if (*src) *dst++ = *src++;
+        }
+        *dst = '\0';
+    } else {
+        // 格式B：找到JSON末尾的 } 截断
+        char *end = strrchr(p, '}');
+        if (end) *(end + 1) = '\0';
+    }
+
+    ActuatorTarget target = {0};
+
+    // JSON字段: "RB","RF","LB","LF"
+    char *rb = strstr(p, "\"RB\":");
+    if (rb) target.RbTarget = (float)atof(rb + 5);
+
+    char *rf = strstr(p, "\"RF\":");
+    if (rf) target.RfTarget = (float)atof(rf + 5);
+
+    char *lb = strstr(p, "\"LB\":");
+    if (lb) target.LbTarget = (float)atof(lb + 5);
+
+    char *lf = strstr(p, "\"LF\":");
+    if (lf) target.LfTarget = (float)atof(lf + 5);
+
+    xQueueSendToBack(get_FrameQueueHandle(), &target, 0);
 }

@@ -90,7 +90,7 @@ extern "C"
 #define DEBUG_WARNING(fmt, ...) ((void)0) // 设置为 `NULL` 以禁用所有调试打印
 #define DEBUG_INFO(fmt, ...) ((void)0)    // 设置为 `NULL` 以禁用所有调试打印
 
-#endif // DEBUG_PRINT_ENABLED
+#endif  DEBUG_PRINT_ENABLED
 
   /**
    * @brief 表示要发送到打印队列的打印消息。
