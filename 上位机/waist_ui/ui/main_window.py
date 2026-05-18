@@ -9,7 +9,7 @@ from qfluentwidgets import FluentWindow, NavigationItemPosition, FluentIcon, Inf
 
 from ui.data_monitor import DataMonitorInterface
 from ui.log_interface import LogInterface
-from ui.rehab_training import RehabTrainingInterface
+from ui.rehab_training import PresetMotionInterface
 from ui.fun_game import FunGameInterface
 from ui.user_custom import UserCustomInterface
 from config.settings import Settings
@@ -34,7 +34,7 @@ class MainWindow(FluentWindow):
     def __initNavigation(self):
         self.dataMonitorInterface = DataMonitorInterface(self)
         self.logInterface = LogInterface(self)
-        self.rehabTrainingInterface = RehabTrainingInterface(self)
+        self.rehabTrainingInterface = PresetMotionInterface(self)
         self.funGameInterface = FunGameInterface(self)
         self.userCustomInterface = UserCustomInterface(self)
 
@@ -50,7 +50,7 @@ class MainWindow(FluentWindow):
         )
         self.addSubInterface(
             self.rehabTrainingInterface,
-            FluentIcon.GAME,
+            FluentIcon.HEART,
             '康复训练'
         )
         self.addSubInterface(
@@ -89,6 +89,15 @@ class MainWindow(FluentWindow):
 
         self.logInterface.setConnectCallback(self.__onConnectClicked)
         self.logInterface.setSendCommandCallback(self.__onSendCommand)
+
+        from backend.kinematics import Kinematics, angles_to_motor_commands
+        self.kinematics = Kinematics()
+        self.rehabTrainingInterface.setConvertCallback(
+            lambda a, b, g: angles_to_motor_commands(a, b, g, self.kinematics)
+        )
+        self.rehabTrainingInterface.setSendMotorCallback(
+            lambda rb, rf, lb, lf: self.comm_client.send_motor_cmd(rb, rf, lb, lf)
+        )
 
         self.logInterface.addLog('INFO', f'Communication mode: {self.comm_mode.upper()}')
         if self.comm_mode == 'mqtt':
