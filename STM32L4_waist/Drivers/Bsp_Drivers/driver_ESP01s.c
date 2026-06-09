@@ -419,6 +419,13 @@ uint8_t ESP8266_Subscribe(ESP8266_Device *dev, const char *topic, uint8_t qos)
     return ESP8266_SendATCommand(dev, cmd, "OK", 5000);
 }
 
+uint8_t ESP8266_MQTTPublish(ESP8266_Device *dev, const char *topic, const char *payload, uint8_t qos)
+{
+    char cmd[256];
+    sprintf(cmd, "AT+MQTTPUB=0,\"%s\",\"%s\",%d,0\r\n", topic, payload, qos);
+    return ESP8266_SendATCommand(dev, cmd, "OK", 3000);
+}
+
 void ESP8266_MQTT_HandleReceivedLine(ESP8266_Device *dev, char *line)
 {
     char *p = strstr(line, "+MQTTSUBRECV:");

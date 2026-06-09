@@ -76,6 +76,7 @@ void ESP8266_RxCpltCallback(ESP8266_Device* dev);
 uint8_t ESP8266_ConnectAP(ESP8266_Device *dev, const char *ssid, const char *pwd);
 uint8_t ESP8266_ConnectMQTT(ESP8266_Device *dev, const char *broker, uint16_t port, const char *client_id, const char *username, const char *password, uint8_t scheme);
 uint8_t ESP8266_Subscribe(ESP8266_Device *dev, const char *topic, uint8_t qos);
+uint8_t ESP8266_MQTTPublish(ESP8266_Device *dev, const char *topic, const char *payload, uint8_t qos);
 void ESP8266_MQTT_HandleReceivedLine(ESP8266_Device *dev, char *line);
 
 #endif

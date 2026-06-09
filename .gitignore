@@ -1,0 +1,42 @@
+# ==================== 根目录忽略 ====================
+/.trae/
+/.vscode/
+/ESP8266CODE/
+/MQTT实现.md
+/硬件配置.md
+
+# ==================== 上位机目录忽略 ====================
+/上位机/.trae/
+/上位机/.vscode/
+/上位机/app/
+/上位机/theme/
+/上位机/venv/
+
+# ==================== waist_ui 忽略 ====================
+上位机/waist_ui/pyside/
+上位机/waist_ui/ui/__pycache__/
+上位机/waist_ui/README.md
+上位机/waist_ui/WORK_LOG.md
+上位机/waist_ui/docs/
+
+# ==================== STM32 编译产物 ====================
+STM32L4_waist/MDK-ARM/NEW_Waist/*.o
+STM32L4_waist/MDK-ARM/NEW_Waist/*.crf
+STM32L4_waist/MDK-ARM/NEW_Waist/*.d
+STM32L4_waist/MDK-ARM/NEW_Waist/*.axf
+STM32L4_waist/MDK-ARM/NEW_Waist/*.hex
+STM32L4_waist/MDK-ARM/NEW_Waist/*.map
+STM32L4_waist/MDK-ARM/NEW_Waist/*.htm
+STM32L4_waist/MDK-ARM/NEW_Waist/*.lnp
+STM32L4_waist/MDK-ARM/NEW_Waist/*.dep
+STM32L4_waist/MDK-ARM/NEW_Waist/*.iex
+STM32L4_waist/MDK-ARM/NEW_Waist/*.2i
+STM32L4_waist/MDK-ARM/*.uvguix*
+STM32L4_waist/MDK-ARM/.vscode/
+STM32L4_waist/.vscode/
+
+# ==================== 通用 ====================
+__pycache__/
+*.pyc
+.env
+venv/

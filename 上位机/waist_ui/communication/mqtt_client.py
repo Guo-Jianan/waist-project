@@ -27,6 +27,7 @@ class MQTTClient(QObject):
     raw_data_received = Signal(bytes)
     error_occurred = Signal(str)
     log_message = Signal(str, str)
+    semg_data_received = Signal(int)
 
     def __init__(self, config=None):
         super().__init__()
@@ -44,6 +45,7 @@ class MQTTClient(QObject):
             'status': f'{base}/status',
             'cmd': f'{base}/cmd',
             'ack': f'{base}/ack',
+            'semg': f'{base}/sEMG',
         }
 
     def connect_to_server(self):
@@ -180,6 +182,17 @@ class MQTTClient(QObject):
     def _on_message(self, client, userdata, msg):
         payload = msg.payload or b''
         self.raw_data_received.emit(payload)
+
+        if msg.topic == self._topics['semg']:
+            raw_text = payload.decode('utf-8', errors='replace').strip()
+            self.log_message.emit('INFO', f'[sEMG] {raw_text}')
+            try:
+                semg_val = int(raw_text)
+                self.semg_data_received.emit(semg_val)
+            except ValueError:
+                pass
+            return
+
         self.log_message.emit('DEBUG', f'[MQTT RX] {msg.topic}: {payload.decode("utf-8", errors="replace")}')
 
         if msg.topic == self._topics['telemetry']:

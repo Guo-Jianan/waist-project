@@ -674,6 +674,11 @@
               <FileType>1</FileType>
               <FilePath>..\Drivers\Bsp_Drivers\driver_ESP01s.c</FilePath>
             </File>
+            <File>
+              <FileName>sEMG.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Drivers\Bsp_Drivers\sEMG.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

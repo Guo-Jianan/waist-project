@@ -1,8 +1,9 @@
 # coding: utf-8
 
 from PySide6.QtCore import Qt, QTimer, QPointF
-from PySide6.QtGui import QDoubleValidator, QColor, QPainter, QBrush
+from PySide6.QtGui import QDoubleValidator, QColor, QPainter, QBrush, QPen
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from qfluentwidgets import (
     ScrollArea, SubtitleLabel, BodyLabel, CaptionLabel,
     CardWidget, SimpleCardWidget,
@@ -156,7 +157,7 @@ class AngleInputCard(SimpleCardWidget):
         layout.addStretch()
 
         self._delete_btn = PushButton('\u5220\u9664')
-        self._delete_btn.setFixedWidth(50)
+        self._delete_btn.setFixedWidth(70)
         layout.addWidget(self._delete_btn)
 
     def getName(self):
@@ -181,6 +182,8 @@ class AngleInputCard(SimpleCardWidget):
 
 
 class PresetMotionInterface(ScrollArea):
+
+    MAX_CHART_POINTS = 200  # 保留最近200个点
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -229,6 +232,9 @@ class PresetMotionInterface(ScrollArea):
 
         self.vBoxLayout.addLayout(top_row)
 
+        semg_card = self.__createSemgCard()
+        self.vBoxLayout.addWidget(semg_card)
+
         ai_card = self.__createThinkingCard()
         self.vBoxLayout.addWidget(ai_card)
 
@@ -243,7 +249,7 @@ class PresetMotionInterface(ScrollArea):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(10)
 
-        header = SubtitleLabel('\u52a8\u4f5c\u8bbe\u5b9a\uff08\u53ef\u589e\u5220\uff09')
+        header = SubtitleLabel('动作设定')
         layout.addWidget(header)
 
         self._cards_layout = QVBoxLayout()
@@ -296,6 +302,86 @@ class PresetMotionInterface(ScrollArea):
 
         layout.addStretch()
         return card
+
+    def __createSemgCard(self):
+        """sEMG 实时监控卡片 - 全屏宽度"""
+        card = CardWidget()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
+
+        header = SubtitleLabel('sEMG 实时监控')
+        layout.addWidget(header)
+
+        # 创建折线图
+        self._semg_series = QLineSeries()
+        self._semg_series.setName('sEMG')
+        pen = QPen(QColor('#0078D4'))
+        pen.setWidth(2)
+        self._semg_series.setPen(pen)
+
+        self._semg_chart = QChart()
+        self._semg_chart.addSeries(self._semg_series)
+        self._semg_chart.setTitle('')
+        self._semg_chart.setAnimationOptions(QChart.AnimationOption.NoAnimation)
+        self._semg_chart.legend().hide()
+        self._semg_chart.setBackgroundRoundness(8)
+
+        # X轴（样本序号）
+        self._semg_axisX = QValueAxis()
+        self._semg_axisX.setRange(0, self.MAX_CHART_POINTS)
+        self._semg_axisX.setLabelFormat('%d')
+        self._semg_axisX.setTitleText('\u6837\u672c')
+        self._semg_chart.addAxis(self._semg_axisX, Qt.AlignBottom)
+        self._semg_series.attachAxis(self._semg_axisX)
+
+        # Y轴（ADC值 0-4096）
+        self._semg_axisY = QValueAxis()
+        self._semg_axisY.setRange(0, 4096)
+        self._semg_axisY.setLabelFormat('%d')
+        self._semg_axisY.setTitleText('ADC')
+        self._semg_chart.addAxis(self._semg_axisY, Qt.AlignLeft)
+        self._semg_series.attachAxis(self._semg_axisY)
+
+        self._semg_chart_view = QChartView(self._semg_chart)
+        self._semg_chart_view.setRenderHint(self._semg_chart_view.renderHints())
+        self._semg_chart_view.setMinimumHeight(320)
+
+        layout.addWidget(self._semg_chart_view)
+
+        self._semg_value_label = BodyLabel('\u5f53\u524d: ---')
+        self._semg_value_label.setStyleSheet('font-size: 14px; font-weight: bold; color: #0078D4;')
+        layout.addWidget(self._semg_value_label)
+
+        self._semg_point_count = 0
+
+        return card
+
+    def append_sEMG_data(self, value: int):
+        """添加sEMG数据点并更新折线图"""
+        self._semg_point_count += 1
+        self._semg_series.append(self._semg_point_count, value)
+
+        # 超过上限1.5倍时，批量裁剪到 MAX_CHART_POINTS 个点
+        limit = self.MAX_CHART_POINTS * 1.5
+        if self._semg_point_count > limit:
+            keep_count = int(self.MAX_CHART_POINTS)
+            remove_count = self._semg_series.count() - keep_count
+            if remove_count > 0:
+                self._semg_series.removePoints(0, remove_count)
+            self._semg_axisX.setRange(
+                self._semg_point_count - keep_count,
+                self._semg_point_count
+            )
+        elif self._semg_point_count <= self.MAX_CHART_POINTS:
+            self._semg_axisX.setRange(0, self.MAX_CHART_POINTS)
+        else:
+            self._semg_axisX.setRange(
+                self._semg_point_count - self.MAX_CHART_POINTS,
+                self._semg_point_count
+            )
+
+        self._semg_value_label.setText(f'\u5f53\u524d: {value}')
 
     def __createThinkingCard(self):
         card = CardWidget()

@@ -84,6 +84,10 @@ class MainWindow(FluentWindow):
         self.comm_client.error_occurred.connect(self.__onError)
         self.comm_client.log_message.connect(self.__onLogMessage)
 
+        if hasattr(self.comm_client, 'semg_data_received'):
+            self.comm_client.semg_data_received.connect(self.dataMonitorInterface.append_sEMG_data)
+            self.comm_client.semg_data_received.connect(self.rehabTrainingInterface.append_sEMG_data)
+
         self.dataMonitorInterface.setForceChangedCallback(self.__onForceChanged)
         self.dataMonitorInterface.setResetCallback(self.__onReset)
 

@@ -48,6 +48,8 @@ TitleLabel,
 SubtitleLabel,
 StrongBodyLabel {
     color: #000000;
+    margin-top: 0px;
+    padding-top: 0px;
 }
 
 BodyLabel,

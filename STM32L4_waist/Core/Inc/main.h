@@ -71,6 +71,8 @@ void Error_Handler(void);
 #define RF_GPIO_Port GPIOC
 #define LB_Pin GPIO_PIN_2
 #define LB_GPIO_Port GPIOC
+#define sEMG_IN_Pin GPIO_PIN_4
+#define sEMG_IN_GPIO_Port GPIOA
 #define LD3_Pin GPIO_PIN_14
 #define LD3_GPIO_Port GPIOB
 #define STLK_RX_Pin GPIO_PIN_8
