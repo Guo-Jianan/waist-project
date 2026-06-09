@@ -22,7 +22,6 @@ def main():
     if qss_file.exists():
         with open(qss_file, 'r', encoding='utf-8') as f:
             app.setStyleSheet(f.read())
-
     # 创建主窗口
     w = MainWindow()
     w.show()

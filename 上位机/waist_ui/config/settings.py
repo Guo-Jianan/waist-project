@@ -89,6 +89,11 @@ class Settings:
     FORCE_MAX = 100
     FORCE_DEFAULT = 0
 
+    # AI分析（Ollama）配置
+    AI_OLLAMA_URL = _env('AI_OLLAMA_URL', 'http://localhost:11434')
+    AI_MODEL = _env('AI_MODEL', 'llama3.2')
+    AI_BUFFER_SIZE = _env_int('AI_BUFFER_SIZE', 200)
+
     # 日志配置
     LOG_LEVEL = 'INFO'
     LOG_FILE = 'app.log'
@@ -127,4 +132,13 @@ class Settings:
             'tls_enable': Settings.MQTT_TLS_ENABLE,
             'ca_cert_path': str(ca_path),
             'mqtt_version': Settings.MQTT_VERSION,
+        }
+
+    @staticmethod
+    def get_ai_config():
+        """获取AI分析（Ollama）配置"""
+        return {
+            'ollama_url': Settings.AI_OLLAMA_URL,
+            'model': Settings.AI_MODEL,
+            'buffer_size': Settings.AI_BUFFER_SIZE,
         }

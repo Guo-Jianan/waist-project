@@ -2,13 +2,13 @@
 
 from PySide6.QtCore import Qt, QTimer, QPointF
 from PySide6.QtGui import QDoubleValidator, QColor, QPainter, QBrush, QPen
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTextEdit
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from qfluentwidgets import (
     ScrollArea, SubtitleLabel, BodyLabel, CaptionLabel,
     CardWidget, SimpleCardWidget,
     LineEdit, ProgressBar, ComboBox,
-    PrimaryPushButton, PushButton
+    PrimaryPushButton, PushButton, InfoBadge, InfoBadgePosition,
 )
 
 MOTION_TYPES = [
@@ -389,14 +389,64 @@ class PresetMotionInterface(ScrollArea):
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(8)
 
-        self._think_widget = ThinkingWidget()
-        layout.addWidget(self._think_widget)
+        header_row = QHBoxLayout()
+        header_row.setSpacing(10)
 
-        placeholder = CaptionLabel('AI \u5206\u6790\u5360\u4f4d\u533a\u57df')
-        placeholder.setStyleSheet('color: #999999;')
-        layout.addWidget(placeholder)
+        self._think_widget = ThinkingWidget()
+        header_row.addWidget(self._think_widget)
+
+        header_row.addStretch()
+
+        self._ai_trigger_btn = PrimaryPushButton('\u89e6\u53d1AI\u5206\u6790')
+        self._ai_trigger_btn.setFixedWidth(120)
+        self._ai_trigger_btn.clicked.connect(self._onAiTrigger)
+        header_row.addWidget(self._ai_trigger_btn)
+
+        layout.addLayout(header_row)
+
+        # AI结果文本显示区域（只读，支持滚动）
+        self._ai_result_edit = QTextEdit()
+        self._ai_result_edit.setReadOnly(True)
+        self._ai_result_edit.setMaximumHeight(180)
+        self._ai_result_edit.setPlaceholderText('\u70b9\u51fb\u201c\u89e6\u53d1AI\u5206\u6790\u201d\u5f00\u59cb\u5206\u6790sEMG\u6570\u636e...')
+        self._ai_result_edit.setStyleSheet(
+            'QTextEdit { border: 1px solid #E0E0E0; border-radius: 6px; '
+            'padding: 8px; font-size: 13px; color: #323130; background: #FAFAFA; }'
+        )
+        layout.addWidget(self._ai_result_edit)
 
         return card
+
+    def _onAiTrigger(self):
+        """点击触发AI分析按钮"""
+        if hasattr(self, '_ai_analyzer') and self._ai_analyzer:
+            self._ai_analyzer.trigger_analysis()
+        else:
+            self._ai_result_edit.setPlainText(
+                '[错误] AI分析模块未连接，请检查配置。'
+            )
+
+    def set_ai_analyzer(self, analyzer):
+        """连接AiAnalyzer实例"""
+        self._ai_analyzer = analyzer
+
+    def on_ai_thinking(self, thinking: bool):
+        """AI思考状态变化"""
+        if thinking:
+            self._think_widget.start()
+            self._ai_trigger_btn.setEnabled(False)
+            self._ai_result_edit.setPlainText('AI\u5206\u6790\u4e2d\uff0c\u8bf7\u7a0d\u5019...')
+        else:
+            self._think_widget.stop()
+            self._ai_trigger_btn.setEnabled(True)
+
+    def on_ai_result(self, text: str):
+        """AI分析结果就绪"""
+        self._ai_result_edit.setPlainText(text)
+
+    def on_ai_error(self, error: str):
+        """AI分析出错"""
+        self._ai_result_edit.setPlainText(f'[错误] {error}')
 
     def __createButtons(self):
         widget = QWidget()
@@ -435,6 +485,14 @@ class PresetMotionInterface(ScrollArea):
         self._start_btn.setEnabled(False)
         self._progress_bar.setValue(0)
         self._think_widget.stop()
+
+        # 清空AI分析器的缓存，开始全新采集
+        if hasattr(self, '_ai_analyzer') and self._ai_analyzer:
+            self._ai_analyzer.clear_buffer()
+            # 构建动作序列上下文
+            motion_names = [card.getName() for card in self._cards]
+            context = "动作序列: " + ", ".join(motion_names)
+            self._ai_analyzer.set_session_context(context)
 
         self._executeCurrent()
 
@@ -485,7 +543,9 @@ class PresetMotionInterface(ScrollArea):
         self._start_btn.setEnabled(True)
         self._current_idx = -1
 
-        self._think_widget.start()
+        # 动作执行完成，自动触发AI分析
+        if hasattr(self, '_ai_analyzer') and self._ai_analyzer:
+            self._onAiTrigger()
 
     def _onStop(self):
         self._exec_timer.stop()

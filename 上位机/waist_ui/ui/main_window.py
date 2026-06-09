@@ -103,10 +103,52 @@ class MainWindow(FluentWindow):
             lambda rb, rf, lb, lf: self.comm_client.send_motor_cmd(rb, rf, lb, lf)
         )
 
+        self.__initAiAnalyzer()
+
         self.logInterface.addLog('INFO', f'Communication mode: {self.comm_mode.upper()}')
         if self.comm_mode == 'mqtt':
             self.logInterface.addLog('INFO', 'MQTT模式使用.env中的EMQX配置，连接页IP/端口输入不会覆盖MQTT配置')
         self.logInterface.addLog('INFO', '请在通信日志界面输入IP地址和端口，点击连接')
+
+    def __initAiAnalyzer(self):
+        """初始化AI分析模块（Ollama）"""
+        from backend.ai_analyzer import AiAnalyzer
+        from pathlib import Path
+
+        ai_config = Settings.get_ai_config()
+        self.ai_analyzer = AiAnalyzer(
+            buffer_size=ai_config['buffer_size'],
+            ollama_url=ai_config['ollama_url'],
+            model=ai_config['model'],
+            parent=self,
+        )
+
+        # 加载sEMG分析提示词模板
+        prompt_path = Path(__file__).resolve().parent.parent / 'config' / 'semg_analysis_prompt.md'
+        if prompt_path.exists():
+            prompt_text = prompt_path.read_text(encoding='utf-8')
+            # 提取prompt中 输出格式 之前的内容（去除#开头的标题和说明部分，只保留分析指令）
+            self.ai_analyzer.set_prompt(prompt_text)
+            self.logInterface.addLog('INFO', f'已加载AI提示词模板: {prompt_path.name}')
+        else:
+            self.logInterface.addLog('WARNING', f'提示词模板文件未找到: {prompt_path}，将使用默认prompt')
+
+        # 将sEMG数据同时喂给AI分析器
+        if hasattr(self.comm_client, 'semg_data_received'):
+            self.comm_client.semg_data_received.connect(self.ai_analyzer.add_semg_data)
+
+        # 连接信号到康复训练界面
+        self.ai_analyzer.thinking_changed.connect(self.rehabTrainingInterface.on_ai_thinking)
+        self.ai_analyzer.result_ready.connect(self.rehabTrainingInterface.on_ai_result)
+        self.ai_analyzer.error_occurred.connect(self.rehabTrainingInterface.on_ai_error)
+
+        # 将AI分析器传给康复训练界面
+        self.rehabTrainingInterface.set_ai_analyzer(self.ai_analyzer)
+
+        self.logInterface.addLog('INFO',
+            f'AI分析模块已初始化: 模型={ai_config["model"]}, '
+            f'Ollama={ai_config["ollama_url"]}'
+        )
 
     def __onConnectClicked(self, ip, port):
         """连接按钮点击"""
