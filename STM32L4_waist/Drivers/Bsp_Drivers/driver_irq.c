@@ -12,7 +12,7 @@ extern ActuatorDevice ActuatorRF;
 extern ActuatorDevice ActuatorRB;
 extern ActuatorDevice ActuatorLF;
 extern ActuatorDevice ActuatorLB;
-extern volatile uint16_t AdcRec[4];
+extern volatile uint16_t AdcRec[5];  // 与freertos.c中的定义保持一致
 
 extern UART_HandleTypeDef hlpuart1;
 extern uint8_t shell_buff[64];
@@ -26,10 +26,10 @@ extern ESP8266_Device esp8266;
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
     if (hadc == &hadc1) {
-		Actuator_UpdateFeedback(&ActuatorLF, AdcRec[0]);
-		Actuator_UpdateFeedback(&ActuatorLB, AdcRec[1]);
-        Actuator_UpdateFeedback(&ActuatorRF, AdcRec[2]);
-        Actuator_UpdateFeedback(&ActuatorRB, AdcRec[3]);
+        Actuator_UpdateFeedback(&ActuatorLF, AdcRec[0]);  // Rank1: PC1 = LF
+        Actuator_UpdateFeedback(&ActuatorLB, AdcRec[1]);  // Rank2: PC2 = LB
+        Actuator_UpdateFeedback(&ActuatorRF, AdcRec[2]);  // Rank3: PA2 = RF
+        Actuator_UpdateFeedback(&ActuatorRB, AdcRec[3]);  // Rank4: PA3 = RB
     }
 }
 

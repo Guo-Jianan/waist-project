@@ -108,7 +108,7 @@ void ESP8266_UART_IDLE_Handler(ESP8266_Device *dev)
         }
 
         // ---------------- 4. MQTT 订阅消息缓存（ISR只做拷贝） ----------------
-        if (dev->expected_resp == NULL && !dev->mqtt_line_ready) {
+        if (!dev->mqtt_line_ready) {
             char *p_mqtt = strstr((const char *)dev->rx_buf, "+MQTTSUBRECV:");
             if (p_mqtt) {
                 char *end = strchr(p_mqtt, '\n');
@@ -147,7 +147,7 @@ static ESP8266_Status ESP8266_SendATCommand(ESP8266_Device *dev, const char *cmd
 #endif
 
     // 2. 发送数据
-    HAL_UART_Transmit(dev->huart, (uint8_t *)cmd, strlen(cmd), 100);
+    HAL_UART_Transmit(dev->huart, (uint8_t *)cmd, strlen(cmd), 1000);
 
     // 3. 阻塞等待结果 (轮询 volatile 标志位)
     uint32_t start = xTaskGetTickCount();
@@ -192,7 +192,7 @@ static ESP8266_Status ESP8266_SendATCommandIdx(ESP8266_Device *dev, const char *
 #endif
 
     // 2. 发送数据
-    HAL_UART_Transmit(dev->huart, (uint8_t *)cmd, idx, 100);
+    HAL_UART_Transmit(dev->huart, (uint8_t *)cmd, idx, 1000);
 
     // 3. 阻塞等待结果 (轮询 volatile 标志位)
     uint32_t start = xTaskGetTickCount();
@@ -421,8 +421,8 @@ uint8_t ESP8266_Subscribe(ESP8266_Device *dev, const char *topic, uint8_t qos)
 
 uint8_t ESP8266_MQTTPublish(ESP8266_Device *dev, const char *topic, const char *payload, uint8_t qos)
 {
-    char cmd[256];
-    sprintf(cmd, "AT+MQTTPUB=0,\"%s\",\"%s\",%d,0\r\n", topic, payload, qos);
+    static char cmd[2048];  // 改为静态分配，避免栈溢出
+    snprintf(cmd, sizeof(cmd), "AT+MQTTPUB=0,\"%s\",\"%s\",%d,0\r\n", topic, payload, qos);
     return ESP8266_SendATCommand(dev, cmd, "OK", 3000);
 }
 

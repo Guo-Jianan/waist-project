@@ -66,14 +66,14 @@ QueueSetHandle_t g_control_set;
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 128 * 4,
+  .stack_size = 256 * 4,  // 增加到1024字节，ESP8266函数需要更多栈空间
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for pidControlTask */
 osThreadId_t pidControlTaskHandle;
 const osThreadAttr_t pidControlTask_attributes = {
   .name = "pidControlTask",
-  .stack_size = 128 * 4,
+  .stack_size = 512 * 4,  // 增加到2048字节，printf处理float需要大量栈空间
   .priority = (osPriority_t) osPriorityRealtime,
 };
 
@@ -81,7 +81,7 @@ const osThreadAttr_t pidControlTask_attributes = {
 osThreadId_t sEMGTaskHandle;
 const osThreadAttr_t sEMGTask_attributes = {
   .name = "sEMG Task",
-  .stack_size = 128 * 4,
+  .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
 
@@ -298,15 +298,17 @@ void sEMG_PubTask(void *argument)
 {
   /* USER CODE BEGIN sEMGPubTask */
   TickType_t xLastWakeTime;
-  const TickType_t xTaskPeriod = pdMS_TO_TICKS(100);
+  const TickType_t xTaskPeriod = pdMS_TO_TICKS(1000);
   xLastWakeTime = xTaskGetTickCount();
+  static char sEMG_payload[64];       // 静态缓冲区，不在栈上
 
   for (;;)
   {
-    uint16_t semg_raw = sEMG_GetRaw();
-    char payload[16];
-    sprintf(payload, "%u", semg_raw);
-    ESP8266_MQTTPublish(&esp8266, "waist/device001/sEMG", payload, 0);
+    uint16_t len = sEMG_PreparePayload(sEMG_payload, sizeof(sEMG_payload));
+    if (len > 0)
+    {
+    ESP8266_MQTTPublish(&esp8266, "waist/device001/sEMG", sEMG_payload, 0);
+    }
 
     vTaskDelayUntil(&xLastWakeTime, xTaskPeriod);
   }
