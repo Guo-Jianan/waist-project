@@ -10,7 +10,7 @@ import json
 import ssl
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QTimer
 
 try:
     import paho.mqtt.client as mqtt
@@ -28,6 +28,7 @@ class MQTTClient(QObject):
     error_occurred = Signal(str)
     log_message = Signal(str, str)
     semg_data_received = Signal(int)
+    _semg_batch_received = Signal(list)
 
     def __init__(self, config=None):
         super().__init__()
@@ -35,6 +36,13 @@ class MQTTClient(QObject):
         self._is_connected = False
         self._client = None
         self._topics = self._build_topics()
+
+        self._semg_buffer = []
+        self._filter_threshold = getattr(Settings, 'SEMG_FILTER_CUTOFF', 1500)
+        self._semg_drain_timer = QTimer(self)
+        self._semg_drain_timer.setInterval(50)  # 20ms = 50fps
+        self._semg_drain_timer.timeout.connect(self._drain_semg_buffer)
+        self._semg_batch_received.connect(self._on_semg_batch)
 
     def _build_topics(self):
         prefix = self.config['topic_prefix'].strip('/')
@@ -185,10 +193,11 @@ class MQTTClient(QObject):
 
         if msg.topic == self._topics['semg']:
             raw_text = payload.decode('utf-8', errors='replace').strip()
-            self.log_message.emit('INFO', f'[sEMG] {raw_text}')
+            preview = raw_text[:50] + ('...' if len(raw_text) > 50 else '')
+            self.log_message.emit('DEBUG', f'[sEMG] {preview}')
             try:
-                semg_val = int(raw_text)
-                self.semg_data_received.emit(semg_val)
+                values = [int(part) for part in raw_text.split() if part]
+                self._semg_batch_received.emit(values)
             except ValueError:
                 pass
             return
@@ -203,6 +212,19 @@ class MQTTClient(QObject):
 
         text = payload.decode('utf-8', errors='replace')
         self.rx_data_changed.emit(text)
+
+    def _on_semg_batch(self, values):
+        self._semg_buffer.extend(values)
+        if not self._semg_drain_timer.isActive():
+            self._semg_drain_timer.start()
+
+    def _drain_semg_buffer(self):
+        if self._semg_buffer:
+            val = self._semg_buffer.pop(0)
+            if val >= self._filter_threshold:
+                self.semg_data_received.emit(val)
+        else:
+            self._semg_drain_timer.stop()
 
     def _parse_telemetry(self, payload):
         try:

@@ -139,7 +139,7 @@ class BatchControlCard(CardWidget):
 class DataMonitorInterface(ScrollArea):
     """数据监测界面"""
 
-    MAX_CHART_POINTS = 200  # 保留最近200个点
+    MAX_CHART_POINTS = 1000  # 保留最近100个点
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -387,6 +387,7 @@ class DataMonitorInterface(ScrollArea):
         layout.addWidget(self._semg_value_label)
 
         self._semg_point_count = 0
+        self._semg_last_update = 0
 
         return card
 
@@ -395,9 +396,16 @@ class DataMonitorInterface(ScrollArea):
         return BatchControlCard()
 
     def append_sEMG_data(self, value: int):
-        """添加sEMG数据点并更新折线图"""
+        """添加sEMG数据点并更新折线图（定时器降频~20Hz防卡死）"""
         self._semg_point_count += 1
         self._semg_series.append(self._semg_point_count, value)
+
+        # 定时器降频：至少间隔50ms才刷新一次图表UI，避免Qt Charts重绘卡死
+        import time
+        now = time.time()
+        if now - self._semg_last_update < 0.05:
+            return
+        self._semg_last_update = now
 
         # 超过上限1.5倍时，批量裁剪到 MAX_CHART_POINTS 个点
         limit = self.MAX_CHART_POINTS * 1.5
