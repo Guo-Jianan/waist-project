@@ -18,6 +18,8 @@ except ImportError:  # pragma: no cover - handled at runtime for clear UI logs
     mqtt = None
 
 from config.settings import Settings
+from communication.semg_filter import SemgSignalProcessor
+from communication.semg_resampler import SemgResampler
 
 
 class MQTTClient(QObject):
@@ -38,11 +40,24 @@ class MQTTClient(QObject):
         self._topics = self._build_topics()
 
         self._semg_buffer = []
-        self._filter_threshold = getattr(Settings, 'SEMG_FILTER_CUTOFF', 1500)
+        self._filter_threshold = getattr(Settings, 'SEMG_FILTER_CUTOFF', 1000)
+        self._semg_processor = SemgSignalProcessor(fs=1111)
+        if not self._semg_processor.available:
+            self.log_message.emit('WARNING',
+                                  'scipy not installed, sEMG filtering disabled. '
+                                  'Run: pip install scipy')
         self._semg_drain_timer = QTimer(self)
-        self._semg_drain_timer.setInterval(50)  # 20ms = 50fps
+        self._semg_drain_timer.setInterval(20)  # 20ms tick
         self._semg_drain_timer.timeout.connect(self._drain_semg_buffer)
         self._semg_batch_received.connect(self._on_semg_batch)
+
+        self._semg_resampler = SemgResampler(parent=self)
+        self._semg_resampler.log_message.connect(self.log_message)
+
+    @property
+    def semg_display_signal(self):
+        """插值显示信号，UI 图表应连接此信号而非 semg_data_received。"""
+        return self._semg_resampler.semg_display_data
 
     def _build_topics(self):
         prefix = self.config['topic_prefix'].strip('/')
@@ -122,6 +137,7 @@ class MQTTClient(QObject):
                 self._is_connected = False
                 self.disconnected.emit()
             self.log_message.emit('INFO', 'MQTT disconnected')
+            self._semg_resampler.reset()
 
     def send_data(self, data):
         if not self._is_connected or not self._client:
@@ -214,7 +230,16 @@ class MQTTClient(QObject):
         self.rx_data_changed.emit(text)
 
     def _on_semg_batch(self, values):
-        self._semg_buffer.extend(values)
+        if self._semg_processor.available:
+            if not hasattr(self, '_filter_log_done'):
+                self._filter_log_done = True
+                self.log_message.emit(
+                    'INFO',
+                    'sEMG filter active: 50Hz notch + 10-230Hz Butterworth bandpass (4th order)')
+            filtered = self._semg_processor.process_batch(values)
+            self._semg_buffer.extend(filtered)
+        else:
+            self._semg_buffer.extend(values)
         if not self._semg_drain_timer.isActive():
             self._semg_drain_timer.start()
 
@@ -223,7 +248,8 @@ class MQTTClient(QObject):
             val = self._semg_buffer.pop(0)
             if val >= self._filter_threshold:
                 self.semg_data_received.emit(val)
-        else:
+                self._semg_resampler.receive_real_value(val)
+        if not self._semg_buffer:
             self._semg_drain_timer.stop()
 
     def _parse_telemetry(self, payload):

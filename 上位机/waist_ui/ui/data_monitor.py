@@ -139,7 +139,7 @@ class BatchControlCard(CardWidget):
 class DataMonitorInterface(ScrollArea):
     """数据监测界面"""
 
-    MAX_CHART_POINTS = 1000  # 保留最近100个点
+    MAX_CHART_POINTS = 10000
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -403,7 +403,7 @@ class DataMonitorInterface(ScrollArea):
         # 定时器降频：至少间隔50ms才刷新一次图表UI，避免Qt Charts重绘卡死
         import time
         now = time.time()
-        if now - self._semg_last_update < 0.05:
+        if now - self._semg_last_update < 0.016:  # ~60fps
             return
         self._semg_last_update = now
 

@@ -2,3 +2,5 @@ PySide6
 PyQt-Fluent-Widgets
 paho-mqtt
 python-dotenv
+numpy
+scipy

@@ -85,8 +85,14 @@ class MainWindow(FluentWindow):
         self.comm_client.log_message.connect(self.__onLogMessage)
 
         if hasattr(self.comm_client, 'semg_data_received'):
-            self.comm_client.semg_data_received.connect(self.dataMonitorInterface.append_sEMG_data)
-            self.comm_client.semg_data_received.connect(self.rehabTrainingInterface.append_sEMG_data)
+            # 显示数据：优先使用插值信号，使波形更密集平滑
+            if hasattr(self.comm_client, 'semg_display_signal'):
+                self.comm_client.semg_display_signal.connect(self.dataMonitorInterface.append_sEMG_data)
+                self.comm_client.semg_display_signal.connect(self.rehabTrainingInterface.append_sEMG_data)
+            else:
+                # 回退：TCPClient 或重采样器未启用时使用原始数据
+                self.comm_client.semg_data_received.connect(self.dataMonitorInterface.append_sEMG_data)
+                self.comm_client.semg_data_received.connect(self.rehabTrainingInterface.append_sEMG_data)
 
         self.dataMonitorInterface.setForceChangedCallback(self.__onForceChanged)
         self.dataMonitorInterface.setResetCallback(self.__onReset)

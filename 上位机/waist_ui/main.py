@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication
 from ui.main_window import MainWindow
 
 
-def main():
+def main(): 
     """主函数"""
     app = QApplication(sys.argv)
     app.setApplicationName('康复医疗仪表盘')

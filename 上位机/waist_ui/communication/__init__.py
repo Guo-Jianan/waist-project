@@ -6,5 +6,6 @@
 
 from .tcp_client import TCPClient
 from .mqtt_client import MQTTClient
+from .semg_resampler import SemgResampler
 
-__all__ = ['TCPClient', 'MQTTClient']
+__all__ = ['TCPClient', 'MQTTClient', 'SemgResampler']

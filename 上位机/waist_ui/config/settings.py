@@ -92,6 +92,9 @@ class Settings:
     # sEMG滤波阈值：低于此值的信号不显示
     SEMG_FILTER_CUTOFF = _env_int('SEMG_FILTER_CUTOFF', 1000)
 
+    # sEMG 显示插值因子：1=禁用，4=4倍密度（推荐）
+    SEMG_INTERPOLATION_FACTOR = _env_int('SEMG_INTERPOLATION_FACTOR', 15)
+
     # AI分析（Ollama）配置
     AI_OLLAMA_URL = _env('AI_OLLAMA_URL', 'http://localhost:11434')
     AI_MODEL = _env('AI_MODEL', 'llama3.2')
