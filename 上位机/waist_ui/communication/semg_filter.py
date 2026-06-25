@@ -74,6 +74,10 @@ class SemgSignalProcessor:
         if not self.available:
             centered = []
             rectified = []
+            return {'display': [], 'activation': []}
+
+        if not self.available:
+            centered = []
             activation = []
             for value in raw_values:
                 if self._dc_baseline is None:
@@ -89,6 +93,8 @@ class SemgSignalProcessor:
                 'rectified': rectified,
                 'activation': activation,
             }
+                activation.append(int(round(abs(detrended))))
+            return {'display': centered, 'activation': activation}
 
         samples = np.asarray(raw_values, dtype=np.float64)
         detrended = np.empty_like(samples)
@@ -135,6 +141,8 @@ class SemgSignalProcessor:
             'rectified': rectified_display,
             'activation': activation,
         }
+        activation = [int(round(v)) for v in envelope]
+        return {'display': display, 'activation': activation}
 
     def reset(self):
         self._dc_baseline = None

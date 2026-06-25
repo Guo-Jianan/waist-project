@@ -459,6 +459,7 @@ class DataMonitorInterface(ScrollArea):
             f'Current: raw={waveform} rectified={rectified} envelope={envelope}'
         )
         value = f'raw={waveform} rectified={rectified} envelope={envelope}'
+        peak_abs = max(32, abs(value))
         self._semg_value_label.setText(f'当前: {value}')
 
     def setConnectionStatus(self, connected, ip=None):
