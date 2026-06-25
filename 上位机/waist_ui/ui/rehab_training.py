@@ -337,9 +337,9 @@ class PresetMotionInterface(ScrollArea):
 
         # Y轴（ADC值 0-4096）
         self._semg_axisY = QValueAxis()
-        self._semg_axisY.setRange(0, 4096)
+        self._semg_axisY.setRange(-256, 256)
         self._semg_axisY.setLabelFormat('%d')
-        self._semg_axisY.setTitleText('ADC')
+        self._semg_axisY.setTitleText('Filtered')
         self._semg_chart.addAxis(self._semg_axisY, Qt.AlignLeft)
         self._semg_series.attachAxis(self._semg_axisY)
 
@@ -355,6 +355,7 @@ class PresetMotionInterface(ScrollArea):
 
         self._semg_point_count = 0
         self._semg_last_update = 0
+        self._semg_peak_abs = 256
 
         return card
 
@@ -389,6 +390,11 @@ class PresetMotionInterface(ScrollArea):
                 self._semg_point_count
             )
 
+        peak_abs = max(32, abs(value))
+        if peak_abs > self._semg_peak_abs:
+            self._semg_peak_abs = peak_abs
+        axis_limit = int(self._semg_peak_abs * 1.2)
+        self._semg_axisY.setRange(-axis_limit, axis_limit)
         self._semg_value_label.setText(f'当前: {value}')
 
     def __createThinkingCard(self):

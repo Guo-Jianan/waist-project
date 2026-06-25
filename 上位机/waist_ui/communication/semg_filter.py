@@ -14,7 +14,7 @@ except ImportError:
 
 class SemgSignalProcessor:
     """
-    Process biased ADC sEMG samples into a smooth activation envelope.
+    Process biased ADC sEMG samples for both waveform display and activation analysis.
 
     Pipeline:
     1. Adaptive baseline removal for single-ended ADC data.
@@ -69,10 +69,19 @@ class SemgSignalProcessor:
 
     def process_batch(self, raw_values):
         if not raw_values:
-            return []
+            return {'display': [], 'activation': []}
 
         if not self.available:
-            return [int(v) for v in raw_values]
+            centered = []
+            activation = []
+            for value in raw_values:
+                if self._dc_baseline is None:
+                    self._dc_baseline = float(value)
+                self._dc_baseline += self._dc_alpha * (value - self._dc_baseline)
+                detrended = value - self._dc_baseline
+                centered.append(int(round(detrended)))
+                activation.append(int(round(abs(detrended))))
+            return {'display': centered, 'activation': activation}
 
         samples = np.asarray(raw_values, dtype=np.float64)
         detrended = np.empty_like(samples)
@@ -111,7 +120,9 @@ class SemgSignalProcessor:
         )
 
         envelope = np.maximum(envelope, 0.0)
-        return [int(round(v)) for v in envelope]
+        display = [int(round(v)) for v in bandpassed]
+        activation = [int(round(v)) for v in envelope]
+        return {'display': display, 'activation': activation}
 
     def reset(self):
         self._dc_baseline = None
