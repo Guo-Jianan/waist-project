@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout
 from PySide6.QtGui import QColor, QPen
-from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
+from PySide6.QtCharts import QCategoryAxis, QChart, QChartView, QLineSeries, QValueAxis
 from qfluentwidgets import (
     ScrollArea, SubtitleLabel, BodyLabel, TitleLabel,
     CardWidget, SimpleCardWidget,
@@ -140,6 +140,7 @@ class DataMonitorInterface(ScrollArea):
     """数据监测界面"""
 
     MAX_CHART_POINTS = 10000
+    SEMG_VALUE_SCALE = 1024.0
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -361,7 +362,7 @@ class DataMonitorInterface(ScrollArea):
 
         self._semg_envelope_series = QLineSeries()
         self._semg_envelope_series.setName('final_envelope')
-        pen = QPen(QColor('#0078D4'))
+        pen = QPen(QColor('#E74C3C'))
         pen.setWidth(3)
         self._semg_envelope_series.setPen(pen)
 
@@ -385,9 +386,14 @@ class DataMonitorInterface(ScrollArea):
         self._semg_envelope_series.attachAxis(self._semg_axisX)
 
         # Y轴（ADC值 0-4096）
-        self._semg_axisY = QValueAxis()
+        self._semg_axisY = QCategoryAxis()
         self._semg_axisY.setRange(-4096, 4096)
-        self._semg_axisY.setLabelFormat('%d')
+        self._semg_axisY.setStartValue(-4096)
+        self._semg_axisY.append('-4', -4096)
+        self._semg_axisY.append('-2', -2048)
+        self._semg_axisY.append('0', 0)
+        self._semg_axisY.append('2', 2048)
+        self._semg_axisY.append('4', 4096)
         self._semg_axisY.setTitleText('Amplitude')
         self._semg_chart.addAxis(self._semg_axisY, Qt.AlignLeft)
         self._semg_waveform_series.attachAxis(self._semg_axisY)
@@ -456,10 +462,9 @@ class DataMonitorInterface(ScrollArea):
             )
 
         self._semg_value_label.setText(
-            f'Current: raw={waveform} rectified={rectified} envelope={envelope}'
+            f'Current sEMG: {envelope / self.SEMG_VALUE_SCALE:.2f}'
         )
-        value = f'raw={waveform} rectified={rectified} envelope={envelope}'
-        peak_abs = max(32, abs(value))
+        value = f'sEMG: {envelope / self.SEMG_VALUE_SCALE:.2f}'
         self._semg_value_label.setText(f'当前: {value}')
 
     def setConnectionStatus(self, connected, ip=None):
