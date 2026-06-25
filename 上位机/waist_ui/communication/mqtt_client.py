@@ -40,8 +40,7 @@ class MQTTClient(QObject):
         self._client = None
         self._topics = self._build_topics()
 
-        self._filter_threshold = getattr(Settings, 'SEMG_FILTER_CUTOFF', 1000)
-        self._semg_processor = SemgSignalProcessor(fs=1111)
+        self._semg_processor = SemgSignalProcessor(fs=1000)
         self._semg_buffer = deque()
         if not self._semg_processor.available:
             self.log_message.emit('WARNING',
@@ -236,7 +235,8 @@ class MQTTClient(QObject):
                 self._filter_log_done = True
                 self.log_message.emit(
                     'INFO',
-                    'sEMG filter active: 50Hz notch + 10-230Hz Butterworth bandpass (4th order)')
+                    'sEMG preprocessing active: baseline removal + 50Hz notch + '
+                    '20-150Hz bandpass + rectified envelope')
             values = self._semg_processor.process_batch(values)
 
         self._semg_buffer.extend(values)
@@ -256,9 +256,8 @@ class MQTTClient(QObject):
 
         for _ in range(min(burst, backlog)):
             val = self._semg_buffer.popleft()
-            if val >= self._filter_threshold:
-                self.semg_data_received.emit(val)
-                self._semg_resampler.receive_real_value(val)
+            self.semg_data_received.emit(val)
+            self._semg_resampler.receive_real_value(val)
 
         if not self._semg_buffer:
             self._semg_drain_timer.stop()
