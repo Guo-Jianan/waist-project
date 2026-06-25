@@ -10,7 +10,7 @@ import json
 import ssl
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal, QTimer
+from PySide6.QtCore import QObject, Signal
 
 try:
     import paho.mqtt.client as mqtt
@@ -39,16 +39,12 @@ class MQTTClient(QObject):
         self._client = None
         self._topics = self._build_topics()
 
-        self._semg_buffer = []
         self._filter_threshold = getattr(Settings, 'SEMG_FILTER_CUTOFF', 1000)
         self._semg_processor = SemgSignalProcessor(fs=1111)
         if not self._semg_processor.available:
             self.log_message.emit('WARNING',
                                   'scipy not installed, sEMG filtering disabled. '
                                   'Run: pip install scipy')
-        self._semg_drain_timer = QTimer(self)
-        self._semg_drain_timer.setInterval(20)  # 20ms tick
-        self._semg_drain_timer.timeout.connect(self._drain_semg_buffer)
         self._semg_batch_received.connect(self._on_semg_batch)
 
         self._semg_resampler = SemgResampler(parent=self)
@@ -236,21 +232,12 @@ class MQTTClient(QObject):
                 self.log_message.emit(
                     'INFO',
                     'sEMG filter active: 50Hz notch + 10-230Hz Butterworth bandpass (4th order)')
-            filtered = self._semg_processor.process_batch(values)
-            self._semg_buffer.extend(filtered)
-        else:
-            self._semg_buffer.extend(values)
-        if not self._semg_drain_timer.isActive():
-            self._semg_drain_timer.start()
+            values = self._semg_processor.process_batch(values)
 
-    def _drain_semg_buffer(self):
-        if self._semg_buffer:
-            val = self._semg_buffer.pop(0)
+        for val in values:
             if val >= self._filter_threshold:
                 self.semg_data_received.emit(val)
                 self._semg_resampler.receive_real_value(val)
-        if not self._semg_buffer:
-            self._semg_drain_timer.stop()
 
     def _parse_telemetry(self, payload):
         try:
