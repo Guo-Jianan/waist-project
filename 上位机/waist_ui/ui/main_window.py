@@ -140,7 +140,9 @@ class MainWindow(FluentWindow):
             self.logInterface.addLog('WARNING', f'提示词模板文件未找到: {prompt_path}，将使用默认prompt')
 
         # 将sEMG数据同时喂给AI分析器
-        if hasattr(self.comm_client, 'semg_data_received'):
+        if hasattr(self.comm_client, 'semg_activation_received'):
+            self.comm_client.semg_activation_received.connect(self.ai_analyzer.add_semg_data)
+        elif hasattr(self.comm_client, 'semg_data_received'):
             self.comm_client.semg_data_received.connect(self.ai_analyzer.add_semg_data)
 
         # 连接信号到康复训练界面

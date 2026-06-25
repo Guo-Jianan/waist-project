@@ -11,7 +11,7 @@ from config.settings import Settings
 
 
 class SemgResampler(QObject):
-    semg_display_data = Signal(int)
+    semg_display_data = Signal(object)
     log_message = Signal(str, str)
 
     def __init__(self, parent=None):
@@ -32,7 +32,7 @@ class SemgResampler(QObject):
                 f'sEMG display resampler active: {self._factor}x interpolation, '
                 f'drain interval {interval}ms')
 
-    def receive_real_value(self, value: int):
+    def receive_real_value(self, value):
         if self._factor <= 1:
             self.semg_display_data.emit(value)
             return
@@ -60,8 +60,7 @@ class SemgResampler(QObject):
 
         for i in range(1, n + 1):
             t = i / n
-            interp_val = int(round(prev + t * (value - prev)))
-            self._buffer.append(interp_val)
+            self._buffer.append(self._interpolate(prev, value, t))
 
         self._prev_value = value
 
@@ -74,6 +73,15 @@ class SemgResampler(QObject):
             self.semg_display_data.emit(val)
         if not self._buffer:
             self._drain_timer.stop()
+
+    def _interpolate(self, prev, value, t):
+        if isinstance(prev, (tuple, list)) and isinstance(value, (tuple, list)):
+            return tuple(
+                int(round(p + t * (v - p)))
+                for p, v in zip(prev, value)
+            )
+
+        return int(round(prev + t * (value - prev)))
 
     def reset(self):
         self._prev_value = None
