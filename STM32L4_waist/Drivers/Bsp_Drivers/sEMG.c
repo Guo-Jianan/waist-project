@@ -6,7 +6,7 @@
 extern volatile uint16_t AdcRec[5];
 
 // 内部定义
-#define SEMG_FILTER_WINDOW_DEFAULT 16
+#define SEMG_FILTER_WINDOW_DEFAULT 5
 #define SEMG_BUFFER_SIZE 64
 // PINGPONG_SIZE 定义在 sEMG.h 中
 
