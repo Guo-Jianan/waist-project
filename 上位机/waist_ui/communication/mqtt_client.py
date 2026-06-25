@@ -41,6 +41,7 @@ class MQTTClient(QObject):
         self._is_connected = False
         self._client = None
         self._topics = self._build_topics()
+        self._semg_batch_limit = 100
 
         self._semg_processor = SemgSignalProcessor(fs=1000)
         self._semg_buffer = deque(maxlen=200)
@@ -216,6 +217,8 @@ class MQTTClient(QObject):
             self.log_message.emit('DEBUG', f'[sEMG] {preview}')
             try:
                 values = [int(part) for part in raw_text.split() if part]
+                if len(values) > self._semg_batch_limit:
+                    values = values[-self._semg_batch_limit:]
                 self._on_semg_batch(values)
             except ValueError:
                 pass
