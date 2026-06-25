@@ -33,6 +33,7 @@ class MQTTClient(QObject):
     semg_data_received = Signal(int)
     semg_activation_received = Signal(int)
     _semg_batch_received = Signal(list)
+    _start_semg_drain = Signal()
 
     def __init__(self, config=None):
         super().__init__()
@@ -50,6 +51,7 @@ class MQTTClient(QObject):
         self._semg_drain_timer = QTimer(self)
         self._semg_drain_timer.setInterval(10)
         self._semg_drain_timer.timeout.connect(self._drain_semg_buffer)
+        self._start_semg_drain.connect(self._semg_drain_timer.start)
 
         self._semg_resampler = SemgResampler(parent=self)
         self._semg_resampler.log_message.connect(self.log_message)
@@ -250,7 +252,7 @@ class MQTTClient(QObject):
             zip(values['display'], values['rectified'], values['activation'])
         )
         if not self._semg_drain_timer.isActive():
-            self._semg_drain_timer.start()
+            self._start_semg_drain.emit()
 
     def _drain_semg_buffer(self):
         if self._semg_buffer:
