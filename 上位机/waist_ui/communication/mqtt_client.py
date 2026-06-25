@@ -31,6 +31,7 @@ class MQTTClient(QObject):
     error_occurred = Signal(str)
     log_message = Signal(str, str)
     semg_data_received = Signal(int)
+    semg_activation_received = Signal(int)
     _semg_batch_received = Signal(list)
 
     def __init__(self, config=None):
@@ -235,11 +236,13 @@ class MQTTClient(QObject):
                 self._filter_log_done = True
                 self.log_message.emit(
                     'INFO',
-                    'sEMG preprocessing active: baseline removal + 50Hz notch + '
-                    '20-150Hz bandpass + rectified envelope')
+                    'sEMG preprocessing active: bipolar display waveform + '
+                    'rectified activation envelope')
             values = self._semg_processor.process_batch(values)
+        else:
+            values = {'display': list(values), 'activation': list(values)}
 
-        self._semg_buffer.extend(values)
+        self._semg_buffer.extend(zip(values['display'], values['activation']))
         if not self._semg_drain_timer.isActive():
             self._semg_drain_timer.start()
 
@@ -255,9 +258,10 @@ class MQTTClient(QObject):
             burst = 1
 
         for _ in range(min(burst, backlog)):
-            val = self._semg_buffer.popleft()
-            self.semg_data_received.emit(val)
-            self._semg_resampler.receive_real_value(val)
+            display_val, activation_val = self._semg_buffer.popleft()
+            self.semg_data_received.emit(display_val)
+            self.semg_activation_received.emit(activation_val)
+            self._semg_resampler.receive_real_value(display_val)
 
         if not self._semg_buffer:
             self._semg_drain_timer.stop()
