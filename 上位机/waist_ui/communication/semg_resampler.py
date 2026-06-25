@@ -18,10 +18,9 @@ class SemgResampler(QObject):
         super().__init__(parent)
         self._factor = Settings.SEMG_INTERPOLATION_FACTOR
         self._prev_value = None
-        self._buffer = collections.deque(maxlen=1000)
-        self._max_backlog = max(32, self._factor * 6)
+        self._buffer = collections.deque(maxlen=self._factor * 100)
 
-        interval = max(2, min(10, 20 // max(1, self._factor)))
+        interval = max(1, 1000 // max(1, self._factor * 100))
         self._drain_timer = QTimer(self)
         self._drain_timer.setInterval(interval)
         self._drain_timer.timeout.connect(self._drain)
@@ -39,30 +38,15 @@ class SemgResampler(QObject):
 
         if self._prev_value is None:
             self._prev_value = value
-            self.semg_display_data.emit(value)
-            return
-
-        prev = self._prev_value
-        backlog = len(self._buffer)
-        if backlog > self._max_backlog:
-            self._buffer.clear()
-            self._drain_timer.stop()
-            self._prev_value = value
-            self.semg_display_data.emit(value)
-            return
-
-        if backlog >= self._factor:
-            n = 1
-        elif backlog:
-            n = max(2, self._factor // 3)
+            for _ in range(self._factor):
+                self._buffer.append(value)
         else:
-            n = self._factor
+            prev = self._prev_value
+            for i in range(1, self._factor + 1):
+                t = i / self._factor
+                self._buffer.append(self._interpolate(prev, value, t))
 
-        for i in range(1, n + 1):
-            t = i / n
-            self._buffer.append(self._interpolate(prev, value, t))
-
-        self._prev_value = value
+            self._prev_value = value
 
         if not self._drain_timer.isActive():
             self._drain_timer.start()
