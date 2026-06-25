@@ -316,19 +316,19 @@ class PresetMotionInterface(ScrollArea):
         # 创建折线图
         self._semg_waveform_series = QLineSeries()
         self._semg_waveform_series.setName('final')
-        pen = QPen(QColor('#4A90E2'))
+        pen = QPen(QColor('#0078D4'))
         pen.setWidth(1)
         self._semg_waveform_series.setPen(pen)
 
         self._semg_rectified_series = QLineSeries()
         self._semg_rectified_series.setName('final_rectified')
-        pen = QPen(QColor('#FF8C42'))
+        pen = QPen(QColor('#0078D4'))
         pen.setWidth(2)
         self._semg_rectified_series.setPen(pen)
 
         self._semg_envelope_series = QLineSeries()
         self._semg_envelope_series.setName('final_envelope')
-        pen = QPen(QColor('#2BB673'))
+        pen = QPen(QColor('#0078D4'))
         pen.setWidth(3)
         self._semg_envelope_series.setPen(pen)
 
@@ -338,7 +338,7 @@ class PresetMotionInterface(ScrollArea):
         self._semg_chart.addSeries(self._semg_envelope_series)
         self._semg_chart.setTitle('')
         self._semg_chart.setAnimationOptions(QChart.AnimationOption.NoAnimation)
-        self._semg_chart.legend().setVisible(True)
+        self._semg_chart.legend().hide()
         self._semg_chart.setBackgroundRoundness(8)
 
         # X轴（样本序号）
@@ -353,7 +353,7 @@ class PresetMotionInterface(ScrollArea):
 
         # Y轴（ADC值 0-4096）
         self._semg_axisY = QValueAxis()
-        self._semg_axisY.setRange(-1024, 1024)
+        self._semg_axisY.setRange(-4096, 4096)
         self._semg_axisY.setLabelFormat('%d')
         self._semg_axisY.setTitleText('Amplitude')
         self._semg_chart.addAxis(self._semg_axisY, Qt.AlignLeft)
