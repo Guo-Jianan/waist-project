@@ -42,15 +42,14 @@ class MQTTClient(QObject):
         self._topics = self._build_topics()
 
         self._semg_processor = SemgSignalProcessor(fs=1000)
-        self._semg_buffer = deque()
+        self._semg_buffer = deque(maxlen=200)
         if not self._semg_processor.available:
             self.log_message.emit('WARNING',
                                   'scipy not installed, sEMG filtering disabled. '
                                   'Run: pip install scipy')
         self._semg_drain_timer = QTimer(self)
-        self._semg_drain_timer.setInterval(4)
+        self._semg_drain_timer.setInterval(10)
         self._semg_drain_timer.timeout.connect(self._drain_semg_buffer)
-        self._semg_batch_received.connect(self._on_semg_batch)
 
         self._semg_resampler = SemgResampler(parent=self)
         self._semg_resampler.log_message.connect(self.log_message)
@@ -138,6 +137,7 @@ class MQTTClient(QObject):
                 self._is_connected = False
                 self.disconnected.emit()
             self.log_message.emit('INFO', 'MQTT disconnected')
+            self._semg_buffer.clear()
             self._semg_resampler.reset()
 
     def send_data(self, data):
@@ -214,7 +214,7 @@ class MQTTClient(QObject):
             self.log_message.emit('DEBUG', f'[sEMG] {preview}')
             try:
                 values = [int(part) for part in raw_text.split() if part]
-                self._semg_batch_received.emit(values)
+                self._on_semg_batch(values)
             except ValueError:
                 pass
             return
@@ -253,17 +253,7 @@ class MQTTClient(QObject):
             self._semg_drain_timer.start()
 
     def _drain_semg_buffer(self):
-        backlog = len(self._semg_buffer)
-        if backlog > 120:
-            burst = 8
-        elif backlog > 60:
-            burst = 4
-        elif backlog > 20:
-            burst = 2
-        else:
-            burst = 1
-
-        for _ in range(min(burst, backlog)):
+        if self._semg_buffer:
             display_val, rectified_val, activation_val = self._semg_buffer.popleft()
             self.semg_data_received.emit(display_val)
             self.semg_activation_received.emit(activation_val)
