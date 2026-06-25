@@ -370,9 +370,9 @@ class DataMonitorInterface(ScrollArea):
 
         # Y轴（ADC值 0-4096）
         self._semg_axisY = QValueAxis()
-        self._semg_axisY.setRange(-256, 256)
+        self._semg_axisY.setRange(0, 4096)
         self._semg_axisY.setLabelFormat('%d')
-        self._semg_axisY.setTitleText('Filtered')
+        self._semg_axisY.setTitleText('ADC')
         self._semg_chart.addAxis(self._semg_axisY, Qt.AlignLeft)
         self._semg_series.attachAxis(self._semg_axisY)
 
@@ -388,7 +388,6 @@ class DataMonitorInterface(ScrollArea):
 
         self._semg_point_count = 0
         self._semg_last_update = 0
-        self._semg_peak_abs = 256
 
         return card
 
@@ -428,9 +427,6 @@ class DataMonitorInterface(ScrollArea):
             )
 
         peak_abs = max(32, abs(value))
-        self._semg_peak_abs = max(peak_abs, int(self._semg_peak_abs * 0.992))
-        axis_limit = int(self._semg_peak_abs * 1.2)
-        self._semg_axisY.setRange(-axis_limit, axis_limit)
         self._semg_value_label.setText(f'当前: {value}')
 
     def setConnectionStatus(self, connected, ip=None):
