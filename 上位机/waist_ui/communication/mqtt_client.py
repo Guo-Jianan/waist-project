@@ -8,9 +8,10 @@ between TCP and MQTT with minimal UI changes.
 
 import json
 import ssl
+from collections import deque
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QTimer
 
 try:
     import paho.mqtt.client as mqtt
@@ -41,10 +42,14 @@ class MQTTClient(QObject):
 
         self._filter_threshold = getattr(Settings, 'SEMG_FILTER_CUTOFF', 1000)
         self._semg_processor = SemgSignalProcessor(fs=1111)
+        self._semg_buffer = deque()
         if not self._semg_processor.available:
             self.log_message.emit('WARNING',
                                   'scipy not installed, sEMG filtering disabled. '
                                   'Run: pip install scipy')
+        self._semg_drain_timer = QTimer(self)
+        self._semg_drain_timer.setInterval(4)
+        self._semg_drain_timer.timeout.connect(self._drain_semg_buffer)
         self._semg_batch_received.connect(self._on_semg_batch)
 
         self._semg_resampler = SemgResampler(parent=self)
@@ -234,10 +239,29 @@ class MQTTClient(QObject):
                     'sEMG filter active: 50Hz notch + 10-230Hz Butterworth bandpass (4th order)')
             values = self._semg_processor.process_batch(values)
 
-        for val in values:
+        self._semg_buffer.extend(values)
+        if not self._semg_drain_timer.isActive():
+            self._semg_drain_timer.start()
+
+    def _drain_semg_buffer(self):
+        backlog = len(self._semg_buffer)
+        if backlog > 120:
+            burst = 8
+        elif backlog > 60:
+            burst = 4
+        elif backlog > 20:
+            burst = 2
+        else:
+            burst = 1
+
+        for _ in range(min(burst, backlog)):
+            val = self._semg_buffer.popleft()
             if val >= self._filter_threshold:
                 self.semg_data_received.emit(val)
                 self._semg_resampler.receive_real_value(val)
+
+        if not self._semg_buffer:
+            self._semg_drain_timer.stop()
 
     def _parse_telemetry(self, payload):
         try:
