@@ -237,6 +237,18 @@ class MQTTClient(QObject):
                 self.log_message.emit(
                     'INFO',
                     'sEMG preprocessing active: bipolar waveform + '
+                    'rectified waveform + low-pass envelope')
+            values = self._semg_processor.process_batch(values)
+        else:
+            values = {
+                'display': list(values),
+                'rectified': [abs(v) for v in values],
+                'activation': [abs(v) for v in values],
+            }
+
+        self._semg_buffer.extend(
+            zip(values['display'], values['rectified'], values['activation'])
+        )
                     'rectified activation envelope (UI uses envelope)')
             values = self._semg_processor.process_batch(values)
         else:
@@ -258,6 +270,12 @@ class MQTTClient(QObject):
             burst = 1
 
         for _ in range(min(burst, backlog)):
+            display_val, rectified_val, activation_val = self._semg_buffer.popleft()
+            self.semg_data_received.emit(display_val)
+            self.semg_activation_received.emit(activation_val)
+            self._semg_resampler.receive_real_value(
+                (display_val, rectified_val, activation_val)
+            )
             display_val, activation_val = self._semg_buffer.popleft()
             self.semg_data_received.emit(activation_val)
             self.semg_activation_received.emit(activation_val)

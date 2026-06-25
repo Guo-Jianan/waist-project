@@ -347,17 +347,31 @@ class DataMonitorInterface(ScrollArea):
         layout.addWidget(title)
 
         # 创建折线图
-        self._semg_series = QLineSeries()
-        self._semg_series.setName('sEMG')
-        pen = QPen(QColor('#0078D4'))
+        self._semg_waveform_series = QLineSeries()
+        self._semg_waveform_series.setName('final')
+        pen = QPen(QColor('#4A90E2'))
+        pen.setWidth(1)
+        self._semg_waveform_series.setPen(pen)
+
+        self._semg_rectified_series = QLineSeries()
+        self._semg_rectified_series.setName('final_rectified')
+        pen = QPen(QColor('#FF8C42'))
         pen.setWidth(2)
-        self._semg_series.setPen(pen)
+        self._semg_rectified_series.setPen(pen)
+
+        self._semg_envelope_series = QLineSeries()
+        self._semg_envelope_series.setName('final_envelope')
+        pen = QPen(QColor('#2BB673'))
+        pen.setWidth(3)
+        self._semg_envelope_series.setPen(pen)
 
         self._semg_chart = QChart()
-        self._semg_chart.addSeries(self._semg_series)
+        self._semg_chart.addSeries(self._semg_waveform_series)
+        self._semg_chart.addSeries(self._semg_rectified_series)
+        self._semg_chart.addSeries(self._semg_envelope_series)
         self._semg_chart.setTitle('')
         self._semg_chart.setAnimationOptions(QChart.AnimationOption.NoAnimation)
-        self._semg_chart.legend().hide()
+        self._semg_chart.legend().setVisible(True)
         self._semg_chart.setBackgroundRoundness(8)
 
         # X轴（样本序号）
@@ -366,15 +380,19 @@ class DataMonitorInterface(ScrollArea):
         self._semg_axisX.setLabelFormat('%d')
         self._semg_axisX.setTitleText('样本')
         self._semg_chart.addAxis(self._semg_axisX, Qt.AlignBottom)
-        self._semg_series.attachAxis(self._semg_axisX)
+        self._semg_waveform_series.attachAxis(self._semg_axisX)
+        self._semg_rectified_series.attachAxis(self._semg_axisX)
+        self._semg_envelope_series.attachAxis(self._semg_axisX)
 
         # Y轴（ADC值 0-4096）
         self._semg_axisY = QValueAxis()
-        self._semg_axisY.setRange(0, 4096)
+        self._semg_axisY.setRange(-1024, 1024)
         self._semg_axisY.setLabelFormat('%d')
-        self._semg_axisY.setTitleText('ADC')
+        self._semg_axisY.setTitleText('Amplitude')
         self._semg_chart.addAxis(self._semg_axisY, Qt.AlignLeft)
-        self._semg_series.attachAxis(self._semg_axisY)
+        self._semg_waveform_series.attachAxis(self._semg_axisY)
+        self._semg_rectified_series.attachAxis(self._semg_axisY)
+        self._semg_envelope_series.attachAxis(self._semg_axisY)
 
         self._semg_chart_view = QChartView(self._semg_chart)
         self._semg_chart_view.setRenderHint(self._semg_chart_view.renderHints())
@@ -395,10 +413,19 @@ class DataMonitorInterface(ScrollArea):
         """批量调节卡片"""
         return BatchControlCard()
 
-    def append_sEMG_data(self, value: int):
+    def append_sEMG_data(self, sample):
         """添加sEMG数据点并更新折线图（定时器降频~20Hz防卡死）"""
+        if isinstance(sample, (tuple, list)) and len(sample) >= 3:
+            waveform, rectified, envelope = sample[:3]
+        else:
+            waveform = sample
+            rectified = abs(sample)
+            envelope = abs(sample)
+
         self._semg_point_count += 1
-        self._semg_series.append(self._semg_point_count, value)
+        self._semg_waveform_series.append(self._semg_point_count, waveform)
+        self._semg_rectified_series.append(self._semg_point_count, rectified)
+        self._semg_envelope_series.append(self._semg_point_count, envelope)
 
         # 定时器降频：至少间隔50ms才刷新一次图表UI，避免Qt Charts重绘卡死
         import time
@@ -411,9 +438,11 @@ class DataMonitorInterface(ScrollArea):
         limit = self.MAX_CHART_POINTS * 1.5
         if self._semg_point_count > limit:
             keep_count = int(self.MAX_CHART_POINTS)
-            remove_count = self._semg_series.count() - keep_count
+            remove_count = self._semg_waveform_series.count() - keep_count
             if remove_count > 0:
-                self._semg_series.removePoints(0, remove_count)
+                self._semg_waveform_series.removePoints(0, remove_count)
+                self._semg_rectified_series.removePoints(0, remove_count)
+                self._semg_envelope_series.removePoints(0, remove_count)
             self._semg_axisX.setRange(
                 self._semg_point_count - keep_count,
                 self._semg_point_count
@@ -426,6 +455,10 @@ class DataMonitorInterface(ScrollArea):
                 self._semg_point_count
             )
 
+        self._semg_value_label.setText(
+            f'Current: raw={waveform} rectified={rectified} envelope={envelope}'
+        )
+        value = f'raw={waveform} rectified={rectified} envelope={envelope}'
         peak_abs = max(32, abs(value))
         self._semg_value_label.setText(f'当前: {value}')
 

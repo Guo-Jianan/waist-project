@@ -69,6 +69,11 @@ class SemgSignalProcessor:
 
     def process_batch(self, raw_values):
         if not raw_values:
+            return {'display': [], 'rectified': [], 'activation': []}
+
+        if not self.available:
+            centered = []
+            rectified = []
             return {'display': [], 'activation': []}
 
         if not self.available:
@@ -80,6 +85,14 @@ class SemgSignalProcessor:
                 self._dc_baseline += self._dc_alpha * (value - self._dc_baseline)
                 detrended = value - self._dc_baseline
                 centered.append(int(round(detrended)))
+                rectified_value = int(round(abs(detrended)))
+                rectified.append(rectified_value)
+                activation.append(rectified_value)
+            return {
+                'display': centered,
+                'rectified': rectified,
+                'activation': activation,
+            }
                 activation.append(int(round(abs(detrended))))
             return {'display': centered, 'activation': activation}
 
@@ -121,6 +134,13 @@ class SemgSignalProcessor:
 
         envelope = np.maximum(envelope, 0.0)
         display = [int(round(v)) for v in bandpassed]
+        rectified_display = [int(round(v)) for v in rectified]
+        activation = [int(round(v)) for v in envelope]
+        return {
+            'display': display,
+            'rectified': rectified_display,
+            'activation': activation,
+        }
         activation = [int(round(v)) for v in envelope]
         return {'display': display, 'activation': activation}
 
