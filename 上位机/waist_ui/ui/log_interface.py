@@ -15,6 +15,7 @@ from qfluentwidgets import (
 
 
 class LogInterface(ScrollArea):
+    MAX_LOG_LINES = 50
     """通信日志界面 - 连接控制 + 日志显示 + 命令输入"""
 
     def __init__(self, parent=None):
@@ -197,7 +198,17 @@ class LogInterface(ScrollArea):
         cursor.insertText(f"{message}\n")
 
         self.logTextEdit.setTextCursor(cursor)
+        self.__trimLogLines()
         self.logTextEdit.ensureCursorVisible()
+
+    def __trimLogLines(self):
+        document = self.logTextEdit.document()
+        while document.blockCount() > self.MAX_LOG_LINES:
+            cursor = self.logTextEdit.textCursor()
+            cursor.movePosition(cursor.MoveOperation.Start)
+            cursor.select(cursor.SelectionType.BlockUnderCursor)
+            cursor.removeSelectedText()
+            cursor.deleteChar()
 
     def clearLog(self):
         """清空日志"""
