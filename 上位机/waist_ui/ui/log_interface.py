@@ -175,6 +175,7 @@ class LogInterface(ScrollArea):
 
     def addLog(self, level, message):
         """添加日志"""
+        return
         import datetime
         time_str = datetime.datetime.now().strftime('%H:%M:%S')
 
