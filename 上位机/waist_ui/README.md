@@ -1,230 +1,203 @@
-# 康复医疗仪表盘
+# 上位机软件 — Waist UI (腰部康复训练监控系统)
 
-基于PySide6和QFluentWidgets的康复医疗设备监控上位机系统，通过MQTT与下位机（STM32+ESP01S）通信，支持实时数据监测和力控指令下发。
+基于 PySide6 的桌面应用程序，用于腰部康复训练机器人的实时监控、数据可视化和 AI 辅助分析。
 
-## 项目简介
+---
 
-本项目是一个现代化的康复医疗仪表盘系统，用于实时监测和控制康复设备。系统采用模块化设计，界面美观易用，通过MQTT Broker与STM32+ESP01S设备节点通信，实现力控参数调节、电机推杆控制等功能。
+## 技术栈
 
-### 主要功能
+| 类别 | 技术 | 版本/备注 |
+|------|------|-----------|
+| 编程语言 | Python | ≥ 3.10 |
+| GUI 框架 | PySide6 | Qt for Python ≥ 6.6 |
+| UI 组件 | QFluentWidgets (PyQt-Fluent-Widgets) | Fluent Design 风格 |
+| 实时图表 | pyqtgraph | OpenGL 加速 |
+| MQTT | paho-mqtt | TLS v3.1.1 |
+| 信号处理 | NumPy, SciPy | 陷波、带通、包络提取 |
+| AI | Ollama REST API | llama3.2, deepseek-r1:1.5b |
+| 运动学 | 自定义 Stewart 逆解 | 4-DOF |
+| 配置 | python-dotenv | .env 文件 |
 
-- **数据监测界面**：实时显示四个电机通道（左前LF、右前RF、左后LB、右后RB）的推杆长度数据
-- **力控参数调节**：通过滑动条和数字框精确控制各通道的参数（0-100）
-- **系统状态监控**：实时显示设备连接状态和通讯状态
-- **快捷指令**：支持参数自动辨识和系统复位功能
-- **通信日志**：独立的通信日志界面，支持命令发送
-- **多界面支持**：包含康复训练、趣味游戏、用户自定义等扩展界面
-
-### 技术栈
-
-- **GUI框架**：PySide6 (Qt for Python)
-- **UI组件库**：QFluentWidgets
-- **通信协议**：MQTT (JSON)，通过EMQX公共Broker中转
-- **编程语言**：Python 3.10+
-- **下位机**：STM32L4 + ESP01S (AT固件) + 四路推杆
+---
 
 ## 项目结构
 
 ```
 waist_ui/
-├── main.py                          # 主程序入口
-├── README.md                       # 项目说明文档
-├── config/                         # 配置模块
-│   ├── __init__.py
-│   └── settings.py                 # 配置管理
-├── ui/                            # UI模块
-│   ├── __init__.py
-│   ├── main_window.py              # MainWindow类（主窗口，5个Tab）
-│   ├── data_monitor.py             # DataMonitorInterface和StatusCard类
-│   ├── log_interface.py            # LogInterface（通信日志界面）
-│   ├── rehab_training.py           # RehabTrainingInterface（康复训练界面）
-│   ├── fun_game.py                # FunGameInterface（趣味游戏界面）
-│   └── user_custom.py             # UserCustomInterface（用户自定义界面）
-├── communication/                  # 通信模块
-│   ├── __init__.py
-│   ├── mqtt_client.py              # MQTT客户端（连接Broker）
-│   ├── protocol.py                # 通信协议定义
-│   ├── communication_manager.py    # 通信管理器
-│   └── tcp_server.py              # TCP服务器（已废弃，保留兼容）
-├── data/                          # 数据处理模块
-│   ├── __init__.py
-│   └── sensor_data.py             # 传感器数据处理
-└── resource/                      # 资源文件
-    ├── light/                     # 浅色主题
-    │   └── demo.qss
-    ├── dark/                      # 深色主题
-    │   └── demo.qss
-    └── body.png                   # 人体图片
+├── main.py                          # 程序入口：QApplication 初始化、QSS 样式加载
+├── requirements.txt                 # 依赖清单
+├── .env                             # MQTT/AI 配置（gitignored）
+├── config/
+│   ├── settings.py                  # 配置加载类（.env 读取）
+│   └── semg_analysis_prompt.md      # sEMG AI 分析提示词模板
+├── ui/
+│   ├── main_window.py               # 主窗口（FluentWindow，5 个导航子页）
+│   ├── data_monitor.py              # 数据监控页：状态卡片 + 体感图 + 滑块 + 肌电图
+│   ├── log_interface.py             # 通信控制页：连接管理、日志、指令输入
+│   ├── rehab_training.py            # 康复训练页：预设动作序列编排与执行
+│   ├── fun_game.py                  # 预留：游戏交互
+│   └── user_custom.py               # 预留：用户自定义
+├── communication/
+│   ├── mqtt_client.py               # MQTT 客户端（paho-mqtt, 自动重连, 信号槽）
+│   ├── tcp_client.py                # TCP 客户端（二进制帧协议，线程式接收）
+│   ├── semg_filter.py               # sEMG 实时信号处理器（陷波 + 带通 + 包络）
+│   └── semg_resampler.py            # sEMG 重采样器（UI 显示插值）
+├── backend/
+│   ├── ai_analyzer.py               # AI 分析模块（Ollama REST 后台线程）
+│   ├── kinematics.py                # Stewart 平台逆运动学解算
+│   └── sensor_manager.py            # 传感器数据管理器（4 通道统一管理）
+├── data/
+│   └── sensor_data.py               # SensorData 数据类
+├── tools/
+│   └── test_emqx_connection.py      # MQTT 连接独立测试脚本
+├── resource/
+│   ├── light/demo.qss               # 浅色主题样式表
+│   └── body.png                     # 人体轮廓示意图
+├── certs/                           # MQTT TLS CA 证书
+└── docs/
+    └── mqtt_integration.md          # MQTT 集成文档
 ```
 
-## 快速开始
+---
 
-### 环境要求
+## 功能模块
 
-- Python 3.10 或更高版本
-- Windows 操作系统（推荐）
-- 网络连接（用于MQTT通信）
+### 1. 数据监控 (Data Monitor)
 
-### 安装依赖
+主界面，采用 **50:50 双栏布局**：
 
-```bash
-pip install PySide6 qfluentwidgets paho-mqtt
-```
+- **左栏**: 人体示意图 + 4 个状态卡片（左前 LF、左后 LB、右前 RF、右后 RB）
+- **右栏**: 连接状态卡 + 训练强度调节（4 个滑块 + DoubleSpinBox）+ sEMG 实时波形图
 
-### 运行程序
+两种控制模式：
+- **即时模式**: 滑块变化实时发送
+- **批量模式**: 4 个通道统一调整后一键发送（100ms 防抖）
 
-```bash
-cd waist_ui
-python main.py
-```
+sEMG 波形图叠加三条曲线：
+- 原始波形（蓝色）
+- 全波整流（蓝色）
+- 包络线（红色）
 
-## 界面说明
+### 2. 通信日志 (Log Interface)
 
-### 界面1：数据监测（主页）
+- TCP / MQTT 连接管理与状态显示
+- 彩色日志输出（按级别着色）
+- 手动指令输入与发送
 
-采用**非对称双栏布局 (70% 可视化 : 30% 控制区)**：
+### 3. 康复训练 (Rehab Training)
 
-**左侧区域 - 患者数字孪生区**
-- 使用 `ElevatedCardWidget` 作为容器（白色背景、带阴影）
-- 中央放置人体剪影图
-- 四个悬浮状态卡片分布在人体图周围：
-  - 左前(LF)、右前(RF)、左后(LB)、右后(RB)
-- 每个卡片包含：部位名称、数值、进度条、状态徽章
+- **预设动作**: 前向弯腰、侧向弯腰、转身
+- 每个动作配置角度值
+- 运动序列编排（按序执行，可调间隔）
+- **运动学解算**: 欧拉角 (α, β, γ) → 4 路推杆长度 → 发送至下位机
+- 训练结束后自动触发 **AI 分析**
 
-**右侧区域 - 指挥控制中心**
+### 4. AI 分析
 
-1. **连接状态**
-   - 显示MQTT连接状态（已连接/未连接）
-   - 显示Broker地址
+通过 Ollama 本地大模型分析 sEMG 信号：
 
-2. **力控参数调节**
-   - 四个滑动条分别控制LF、LB、RF、RB四个通道
-   - 每个滑动条旁边有数字框，可精确输入数值
-   - 滑动条和数字框双向绑定，实时同步
+| 功能 | 说明 |
+|------|------|
+| 模型 | 支持任意 Ollama 模型（默认 deepseek-r1:1.5b） |
+| 数据缓存 | 最近 200 个采样点 |
+| 分析维度 | 信号质量、肌电强度、疲劳判断、动作执行质量 |
+| 触发方式 | 训练结束后自动触发 或 手动触发 |
+| 超时 | 120 秒 |
 
-3. **快捷指令**
-   - **参数自动辨识**：点击后自动识别设备参数
-   - **系统复位**：将所有滑动条和状态卡片重置为0
+输出内容包括：总体评估、动作执行分析表格、肌肉疲劳状态、腰部状况评估、康复建议。
 
-### 界面2：通信日志
+### 5. 运动学解算
 
-- 日志显示区域（彩色分级：INFO/WARNING/ERROR/DEBUG）
-- 命令输入框（可发送自定义命令）
-- 清空日志按钮
-
-### 界面3-5
-
-康复训练、趣味游戏、用户自定义界面（预留）
-
-## 通信协议
-
-### MQTT 控制指令（JSON）
-
-**Topic**: `waist/device001/cmd`（QoS 1）
-
-**JSON格式**:
-```json
-{
-    "cmd": "set_force",
-    "device_id": "device001",
-    "RB": 0.0,
-    "RF": 0.0,
-    "LB": 61.0,
-    "LF": 42.0
-}
-```
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| cmd | string | 指令类型，当前仅支持 `set_force` |
-| device_id | string | 目标设备ID |
-| RB | float | 右后推杆目标值 (0-100) |
-| RF | float | 右前推杆目标值 (0-100) |
-| LB | float | 左后推杆目标值 (0-100) |
-| LF | float | 左前推杆目标值 (0-100) |
-
-### 通信流程
-
-```
-UI → MQTT Broker (broker.emqx.io:1883) → ESP01S → STM32 → PID控制 → 四路推杆
-```
-
-### 旧版二进制协议（已废弃，保留兼容）
-
-数据包格式（仅用于旧版TCP直连模式）：
-```
-[起始符][功能][长度][4×float数据][校验][结束符]
-  0xA5   0xCC  0x10  16字节     ~校验  0x5A
-```
-
-## MQTT Broker 配置
+四自由度 Stewart 并联机构逆解：
 
 | 参数 | 值 |
 |------|-----|
-| Broker地址 | broker.emqx.io |
-| 端口 | 1883 |
-| 客户端ID | waist_ui_xxx（自动生成） |
-| 发布Topic | waist/device001/cmd |
-| 订阅Topic | 待定（数据上报） |
-| QoS | 1 |
+| 基座长度 (Bl) | 30 cm |
+| 基座宽度 (Bw) | 10 cm |
+| 平台长度 (Pl) | 31.5 cm = 1.05 × Bl |
+| 平台宽度 (Pw) | 15 cm |
+| 推杆行程 | 16.5–25.5 cm |
 
-## 下位机配置
+输入：α（绕X轴旋转）、β（绕Y轴旋转）、γ（绕Z轴旋转）
+输出：LF、LB、RF、RB 四路推杆长度百分比 (0–100%)
 
-下位机为STM32L4 + ESP01S（AT固件 v2.3.0），详见 `STM32L4_waist/README.md`。
+---
 
-- STM32通过USART1发送AT指令控制ESP01S
-- ESP01S连接WiFi后，通过MQTT订阅 `waist/device001/cmd` 接收控制指令
-- STM32解析JSON后通过PID闭环控制四路推杆
+## sEMG 信号处理流水线
 
-## 开发规范
+```
+原始 ADC 值 (0–4095)
+    → 自适应基线去除 (DC removal, α=0.002)
+    → 50Hz IIR 陷波 (Notch, Q=30)
+    → 20–150Hz Butterworth 带通 (4 阶)
+    → 全波整流 (Rectification)
+    → 5Hz Butterworth 低通包络提取 (2 阶)
+    → 重采样/插值 → UI 波形显示
+```
 
-### 组件使用规范
+---
 
-- 所有文本使用QFluentWidgets字体规范 (`TitleLabel`, `BodyLabel`, `CaptionLabel`)
-- 所有图标使用 `FluentIcon`
-- 所有按钮使用 `PushButton` / `PrimaryPushButton`
-- 所有滑动条使用 `Slider`
-- 滑动条和数字框使用 `blockSignals()` 避免循环触发
+## 配置
 
-### 沟通规范
+通过 `.env` 文件（位于项目根目录）配置：
 
-- 修改代码前必须先提问确认需求
-- 需求不明确时必须停止，直到完全理解
-- 修改完成后必须告知如何验证
+```env
+COMM_MODE=mqtt                          # 通信模式: mqtt / tcp
+MQTT_BROKER_HOST=broker.emqx.io        # MQTT 服务器地址
+MQTT_BROKER_PORT=8883                   # MQTT 端口 (TLS)
+MQTT_USERNAME=waist-ui                  # MQTT 用户名
+MQTT_PASSWORD=admin                     # MQTT 密码
+MQTT_CLIENT_ID=waist-ui-device001       # 客户端 ID
+MQTT_DEVICE_ID=device001                # 设备 ID
+MQTT_TOPIC_PREFIX=waist                 # 主题前缀
+MQTT_TLS_ENABLE=true                    # 启用 TLS
+MQTT_CA_CERT_PATH=certs/emqxsl-ca.crt  # CA 证书路径
+AI_MODEL=deepseek-r1:1.5b              # Ollama 模型名称
+```
 
-## 待开发功能
+---
 
-- [ ] 压力传感器数据支持
-- [ ] 康复训练模式
-- [ ] 趣味游戏功能
-- [ ] 用户自定义功能
-- [ ] 数据记录和导出
-- [ ] MQTT自动重连机制
-- [ ] 下位机状态上报订阅
+## 性能指标
 
-## 更新日志
+| 指标 | 值 |
+|------|-----|
+| GUI 刷新率 | ~60 FPS |
+| sEMG 数据缓冲 | 200 点 |
+| sEMG 图表曲线 | 3 条（原始/整流/包络） |
+| AI 分析超时 | 120 秒 |
+| MQTT QoS | 1 (at-least-once) |
+| TCP 帧校验 | 累加和取反 |
+| 批量发送防抖 | 100 ms |
 
-### v2.0.0 (2026-05-13)
+---
 
-**重大架构变更：**
-- 通信方式从 TCP直连 改为 MQTT（Broker中转）
-- 下位机从 ESP8266 Arduino固件 改为 STM32L4+ESP01S AT固件
-- 指令格式从 二进制协议 改为 JSON over MQTT
-- 引入 EMQX Public Broker (broker.emqx.io:1883)
+## 安装与运行
 
-### v1.1.0 (2026-03-05)
+```bash
+# 1. 安装 Python 依赖
+pip install -r requirements.txt
 
-**新增功能：**
-- 实现与ESP8266的TCP通信
-- 添加通信日志界面
-- 添加命令发送功能
-- 完善协议解析
+# 2. 配置 MQTT
+# 编辑 .env 中的配置项
 
-### v1.0.0 (2026-02-05)
+# 3. 启动应用
+python main.py
 
-**新增功能：**
-- 初始版本发布
-- 实现数据监测界面
-- 实现力控参数调节功能
-- 实现系统状态监控
-- 实现快捷指令功能
+# 4. （可选）启动 Ollama 本地 AI 服务
+ollama serve
+ollama pull deepseek-r1:1.5b
+```
+
+---
+
+## 依赖
+
+```
+PySide6
+PyQt-Fluent-Widgets (QFluentWidgets)
+paho-mqtt
+python-dotenv
+numpy
+scipy
+requests
+```

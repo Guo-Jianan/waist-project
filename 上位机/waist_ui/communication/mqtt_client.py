@@ -44,7 +44,7 @@ class MQTTClient(QObject):
         self._semg_batch_limit = 100
 
         self._semg_processor = SemgSignalProcessor(fs=1000)
-        self._semg_buffer = deque(maxlen=200)
+        self._semg_buffer = deque(maxlen=10)
         if not self._semg_processor.available:
             self.log_message.emit('WARNING',
                                   'scipy not installed, sEMG filtering disabled. '

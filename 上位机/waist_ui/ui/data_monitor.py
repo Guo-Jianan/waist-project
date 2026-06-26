@@ -5,10 +5,13 @@
 """
 
 from pathlib import Path
+import collections
+
+import numpy as np
+import pyqtgraph as pg
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout
-from PySide6.QtGui import QColor, QPen
-from PySide6.QtCharts import QCategoryAxis, QChart, QChartView, QLineSeries, QValueAxis
+from PySide6.QtGui import QColor
 from qfluentwidgets import (
     ScrollArea, SubtitleLabel, BodyLabel, TitleLabel,
     CardWidget, SimpleCardWidget,
@@ -338,7 +341,7 @@ class DataMonitorInterface(ScrollArea):
         return card
 
     def __createFeedbackCard(self):
-        """实时反馈卡片 - sEMG折线图"""
+        """实时反馈卡片 - sEMG折线图（pyqtgraph）"""
         card = CardWidget()
         layout = QVBoxLayout(card)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -347,69 +350,33 @@ class DataMonitorInterface(ScrollArea):
         title = SubtitleLabel('sEMG 实时监控')
         layout.addWidget(title)
 
-        # 创建折线图
-        self._semg_waveform_series = QLineSeries()
-        self._semg_waveform_series.setName('final')
-        pen = QPen(QColor('#0078D4'))
-        pen.setWidth(1)
-        self._semg_waveform_series.setPen(pen)
+        # pyqtgraph 折线图
+        self._semg_plot = pg.PlotWidget()
+        self._semg_plot.setBackground('w')
+        self._semg_plot.showGrid(x=True, y=True, alpha=0.3)
+        self._semg_plot.setLabel('left', 'Amplitude')
+        self._semg_plot.setLabel('bottom', '样本')
+        self._semg_plot.setYRange(-4096, 4096)
+        self._semg_plot.setMinimumHeight(250)
+        self._semg_plot.getPlotItem().hideButtons()
 
-        self._semg_rectified_series = QLineSeries()
-        self._semg_rectified_series.setName('final_rectified')
-        pen = QPen(QColor('#0078D4'))
-        pen.setWidth(2)
-        self._semg_rectified_series.setPen(pen)
+        pen_wave = pg.mkPen(color='#0078D4', width=1)
+        self._semg_waveform_curve = self._semg_plot.plot(pen=pen_wave)
+        pen_rect = pg.mkPen(color='#0078D4', width=2)
+        self._semg_rectified_curve = self._semg_plot.plot(pen=pen_rect)
+        pen_env = pg.mkPen(color='#E74C3C', width=3)
+        self._semg_envelope_curve = self._semg_plot.plot(pen=pen_env)
 
-        self._semg_envelope_series = QLineSeries()
-        self._semg_envelope_series.setName('final_envelope')
-        pen = QPen(QColor('#E74C3C'))
-        pen.setWidth(3)
-        self._semg_envelope_series.setPen(pen)
-
-        self._semg_chart = QChart()
-        self._semg_chart.addSeries(self._semg_waveform_series)
-        self._semg_chart.addSeries(self._semg_rectified_series)
-        self._semg_chart.addSeries(self._semg_envelope_series)
-        self._semg_chart.setTitle('')
-        self._semg_chart.setAnimationOptions(QChart.AnimationOption.NoAnimation)
-        self._semg_chart.legend().hide()
-        self._semg_chart.setBackgroundRoundness(8)
-
-        # X轴（样本序号）
-        self._semg_axisX = QValueAxis()
-        self._semg_axisX.setRange(0, self.MAX_CHART_POINTS)
-        self._semg_axisX.setLabelFormat('%d')
-        self._semg_axisX.setTitleText('样本')
-        self._semg_chart.addAxis(self._semg_axisX, Qt.AlignBottom)
-        self._semg_waveform_series.attachAxis(self._semg_axisX)
-        self._semg_rectified_series.attachAxis(self._semg_axisX)
-        self._semg_envelope_series.attachAxis(self._semg_axisX)
-
-        # Y轴（ADC值 0-4096）
-        self._semg_axisY = QCategoryAxis()
-        self._semg_axisY.setRange(-4096, 4096)
-        self._semg_axisY.setStartValue(-4096)
-        self._semg_axisY.append('-4', -4096)
-        self._semg_axisY.append('-2', -2048)
-        self._semg_axisY.append('0', 0)
-        self._semg_axisY.append('2', 2048)
-        self._semg_axisY.append('4', 4096)
-        self._semg_axisY.setTitleText('Amplitude')
-        self._semg_chart.addAxis(self._semg_axisY, Qt.AlignLeft)
-        self._semg_waveform_series.attachAxis(self._semg_axisY)
-        self._semg_rectified_series.attachAxis(self._semg_axisY)
-        self._semg_envelope_series.attachAxis(self._semg_axisY)
-
-        self._semg_chart_view = QChartView(self._semg_chart)
-        self._semg_chart_view.setRenderHint(self._semg_chart_view.renderHints())
-        self._semg_chart_view.setMinimumHeight(250)
-
-        layout.addWidget(self._semg_chart_view)
+        layout.addWidget(self._semg_plot)
 
         self._semg_value_label = BodyLabel('当前: ---')
         self._semg_value_label.setStyleSheet('font-size: 14px; font-weight: bold; color: #0078D4;')
         layout.addWidget(self._semg_value_label)
 
+        # 数据缓冲
+        self._waveform_data = collections.deque(maxlen=self.MAX_CHART_POINTS)
+        self._rectified_data = collections.deque(maxlen=self.MAX_CHART_POINTS)
+        self._envelope_data = collections.deque(maxlen=self.MAX_CHART_POINTS)
         self._semg_point_count = 0
         self._semg_last_update = 0
 
@@ -420,7 +387,7 @@ class DataMonitorInterface(ScrollArea):
         return BatchControlCard()
 
     def append_sEMG_data(self, sample):
-        """添加sEMG数据点并更新折线图（定时器降频~20Hz防卡死）"""
+        """添加sEMG数据点并更新折线图（pyqtgraph 批量 setData）"""
         if isinstance(sample, (tuple, list)) and len(sample) >= 3:
             waveform, rectified, envelope = sample[:3]
         else:
@@ -428,44 +395,36 @@ class DataMonitorInterface(ScrollArea):
             rectified = abs(sample)
             envelope = abs(sample)
 
+        self._waveform_data.append(waveform)
+        self._rectified_data.append(rectified)
+        self._envelope_data.append(envelope)
         self._semg_point_count += 1
-        self._semg_waveform_series.append(self._semg_point_count, waveform)
-        self._semg_rectified_series.append(self._semg_point_count, rectified)
-        self._semg_envelope_series.append(self._semg_point_count, envelope)
 
-        # 定时器降频：至少间隔50ms才刷新一次图表UI，避免Qt Charts重绘卡死
+        # 降频 ~60fps
         import time
         now = time.time()
-        if now - self._semg_last_update < 0.016:  # ~60fps
+        if now - self._semg_last_update < 0.016:
             return
         self._semg_last_update = now
 
-        # 超过上限1.5倍时，批量裁剪到 MAX_CHART_POINTS 个点
-        limit = self.MAX_CHART_POINTS * 1.5
-        if self._semg_point_count > limit:
-            keep_count = int(self.MAX_CHART_POINTS)
-            remove_count = self._semg_waveform_series.count() - keep_count
-            if remove_count > 0:
-                self._semg_waveform_series.removePoints(0, remove_count)
-                self._semg_rectified_series.removePoints(0, remove_count)
-                self._semg_envelope_series.removePoints(0, remove_count)
-            self._semg_axisX.setRange(
-                self._semg_point_count - keep_count,
-                self._semg_point_count
-            )
-        elif self._semg_point_count <= self.MAX_CHART_POINTS:
-            self._semg_axisX.setRange(0, self.MAX_CHART_POINTS)
+        n = len(self._waveform_data)
+        if self._semg_point_count <= self.MAX_CHART_POINTS:
+            start_idx = 0
         else:
-            self._semg_axisX.setRange(
-                self._semg_point_count - self.MAX_CHART_POINTS,
-                self._semg_point_count
-            )
+            start_idx = self._semg_point_count - n
 
-        self._semg_value_label.setText(
-            f'Current sEMG: {envelope / self.SEMG_VALUE_SCALE:.2f}'
-        )
-        value = f'sEMG: {envelope / self.SEMG_VALUE_SCALE:.2f}'
-        self._semg_value_label.setText(f'当前: {value}')
+        x = np.arange(start_idx, self._semg_point_count)
+        self._semg_waveform_curve.setData(x=x, y=np.array(self._waveform_data, dtype=np.float64))
+        self._semg_rectified_curve.setData(x=x, y=np.array(self._rectified_data, dtype=np.float64))
+        self._semg_envelope_curve.setData(x=x, y=np.array(self._envelope_data, dtype=np.float64))
+
+        if self._semg_point_count <= self.MAX_CHART_POINTS:
+            self._semg_plot.setXRange(0, self.MAX_CHART_POINTS)
+        else:
+            self._semg_plot.setXRange(start_idx, start_idx + self.MAX_CHART_POINTS)
+
+        val = self._envelope_data[-1] / self.SEMG_VALUE_SCALE if n > 0 else 0
+        self._semg_value_label.setText(f'当前: sEMG: {val:.2f}')
 
     def setConnectionStatus(self, connected, ip=None):
         """设置连接状态"""
