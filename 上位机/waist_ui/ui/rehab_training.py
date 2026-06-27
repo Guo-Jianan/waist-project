@@ -2,12 +2,14 @@
 import collections
 import html
 import re
+from datetime import datetime
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, QTimer, QPointF
-from PySide6.QtGui import QDoubleValidator, QColor, QPainter, QBrush
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTextEdit
+from PySide6.QtCore import Qt, QTimer, QPointF, QMarginsF
+from PySide6.QtGui import QDoubleValidator, QColor, QPainter, QBrush, QPageLayout, QPageSize
+from PySide6.QtPrintSupport import QPrinter
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QFileDialog
 from qfluentwidgets import (
     ScrollArea, SubtitleLabel, BodyLabel, CaptionLabel,
     CardWidget, SimpleCardWidget,
@@ -216,6 +218,7 @@ class PresetMotionInterface(ScrollArea):
         self._status_label = None
         self._progress_bar = None
         self._current_label = None
+        self._last_report_html = ''
 
         self.__initWidget()
         self.__initLayout()
@@ -415,13 +418,19 @@ class PresetMotionInterface(ScrollArea):
         self._ai_trigger_btn.clicked.connect(self._onAiTrigger)
         header_row.addWidget(self._ai_trigger_btn)
 
+        self._export_pdf_btn = PushButton('导出PDF')
+        self._export_pdf_btn.setFixedWidth(108)
+        self._export_pdf_btn.setEnabled(False)
+        self._export_pdf_btn.clicked.connect(self._exportAiReportPdf)
+        header_row.addWidget(self._export_pdf_btn)
+
         layout.addLayout(header_row)
 
         # AI结果文本显示区域（只读，支持滚动）
         self._ai_result_edit = QTextEdit()
         self._ai_result_edit.setReadOnly(True)
-        self._ai_result_edit.setMinimumHeight(280)
-        self._ai_result_edit.setMaximumHeight(340)
+        self._ai_result_edit.setMinimumHeight(380)
+        self._ai_result_edit.setMaximumHeight(520)
         self._ai_result_edit.setPlaceholderText('点击“AI分析”开始生成 sEMG 分析报告...')
         self._ai_result_edit.setStyleSheet(
             'QTextEdit { border: 1px solid #E0E0E0; border-radius: 6px; '
@@ -556,13 +565,59 @@ class PresetMotionInterface(ScrollArea):
 
         return f"<html><body>{''.join(blocks)}</body></html>"
 
+    def _setAiResultHtml(self, html_text: str, allow_export: bool = True):
+        self._last_report_html = html_text
+        self._ai_result_edit.setHtml(html_text)
+        has_content = bool(self._ai_result_edit.toPlainText().strip())
+        self._export_pdf_btn.setEnabled(allow_export and has_content)
+
+    def _exportAiReportPdf(self):
+        plain_text = self._ai_result_edit.toPlainText().strip()
+        if not plain_text:
+            self._setAiResultHtml(
+                self._render_markdown_html('[错误] 当前没有可导出的 AI 分析报告。')
+            )
+            return
+
+        default_name = f"腰部康复训练分析报告_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            '导出 AI 分析报告',
+            default_name,
+            'PDF Files (*.pdf)'
+        )
+        if not file_path:
+            return
+
+        if not file_path.lower().endswith('.pdf'):
+            file_path += '.pdf'
+
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setOutputFormat(QPrinter.PdfFormat)
+        printer.setOutputFileName(file_path)
+        printer.setPageSize(QPageSize(QPageSize.A4))
+        printer.setPageMargins(QMarginsF(15, 15, 15, 15), QPageLayout.Millimeter)
+
+        document = self._ai_result_edit.document().clone()
+        document.setPageSize(printer.pageRect(QPrinter.Point).size())
+
+        try:
+            document.print_(printer)
+        except Exception as e:
+            self._setAiResultHtml(
+                self._render_markdown_html(f'[错误] PDF 导出失败: {e}'),
+                allow_export=False
+            )
+            return
+
     def _onAiTrigger(self):
         """点击触发AI分析按钮"""
         if hasattr(self, '_ai_analyzer') and self._ai_analyzer:
             self._ai_analyzer.trigger_analysis()
         else:
-            self._ai_result_edit.setHtml(
-                self._render_markdown_html('[错误] AI分析模块未连接，请检查配置。')
+            self._setAiResultHtml(
+                self._render_markdown_html('[错误] AI分析模块未连接，请检查配置。'),
+                allow_export=False
             )
 
     def set_ai_analyzer(self, analyzer):
@@ -574,8 +629,9 @@ class PresetMotionInterface(ScrollArea):
         if thinking:
             self._think_widget.start()
             self._ai_trigger_btn.setEnabled(False)
-            self._ai_result_edit.setHtml(
-                self._render_markdown_html('AI 分析中，请稍候...')
+            self._setAiResultHtml(
+                self._render_markdown_html('AI 分析中，请稍候...'),
+                allow_export=False
             )
         else:
             self._think_widget.stop()
@@ -583,12 +639,13 @@ class PresetMotionInterface(ScrollArea):
 
     def on_ai_result(self, text: str):
         """AI分析结果就绪"""
-        self._ai_result_edit.setHtml(self._render_markdown_html(text))
+        self._setAiResultHtml(self._render_markdown_html(text))
 
     def on_ai_error(self, error: str):
         """AI分析出错"""
-        self._ai_result_edit.setHtml(
-            self._render_markdown_html(f'[错误] {error}')
+        self._setAiResultHtml(
+            self._render_markdown_html(f'[错误] {error}'),
+            allow_export=False
         )
 
     def __createButtons(self):
