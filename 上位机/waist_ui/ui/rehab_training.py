@@ -3,8 +3,8 @@ import collections
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, QTimer, QPointF
-from PySide6.QtGui import QDoubleValidator, QColor, QPainter, QBrush, QPen
+from PySide6.QtCore import Qt, QTimer, QPointF, QRectF, QSize
+from PySide6.QtGui import QDoubleValidator, QColor, QPainter, QBrush, QPen, QFont, QFontMetrics
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTextEdit
 from qfluentwidgets import (
     ScrollArea, SubtitleLabel, BodyLabel, CaptionLabel,
@@ -82,6 +82,88 @@ class EllipsisSpinner(QWidget):
         self._timer.stop()
 
 
+class EraseTextWidget(QWidget):
+
+    def __init__(self, text='AI Thinking', parent=None):
+        super().__init__(parent)
+        self._text = text
+        self._phase = 0.0
+        self._direction = 1
+        self._font = QFont()
+        self._font.setPointSize(12)
+        self._font.setWeight(QFont.Medium)
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+        self._timer.setInterval(45)
+        self.setMinimumHeight(28)
+
+    def sizeHint(self):
+        metrics = QFontMetrics(self._font)
+        return QSize(metrics.horizontalAdvance(self._text) + 12, max(28, metrics.height() + 8))
+
+    def setText(self, text):
+        self._text = text
+        self.updateGeometry()
+        self.update()
+
+    def _tick(self):
+        step = 0.08
+        self._phase += step * self._direction
+        if self._phase >= 1.0:
+            self._phase = 1.0
+            self._direction = -1
+        elif self._phase <= 0.0:
+            self._phase = 0.0
+            self._direction = 1
+        self.update()
+
+    def start(self):
+        self._phase = 0.0
+        self._direction = 1
+        self._timer.start()
+        self.update()
+
+    def stop(self):
+        self._timer.stop()
+        self._phase = 0.0
+        self._direction = 1
+        self.update()
+
+    def paintEvent(self, event):
+        if not self._text:
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.TextAntialiasing)
+        painter.setFont(self._font)
+
+        metrics = QFontMetrics(self._font)
+        text_width = metrics.horizontalAdvance(self._text)
+        baseline = (self.height() + metrics.ascent() - metrics.descent()) / 2.0
+        text_rect = QRectF(0, 0, text_width, self.height())
+
+        ghost_pen = QPen(QColor('#9AA4B2'))
+        painter.setPen(ghost_pen)
+        painter.drawText(QPointF(0, baseline), self._text)
+
+        visible_left = text_width * self._phase
+        visible_rect = QRectF(visible_left, 0, max(0.0, text_width - visible_left), self.height())
+        if visible_rect.width() > 0:
+            painter.save()
+            painter.setClipRect(visible_rect)
+            painter.setPen(QPen(QColor('#1F2937')))
+            painter.drawText(QPointF(0, baseline), self._text)
+            painter.restore()
+
+        if self._timer.isActive():
+            highlight_x = min(text_width, visible_left)
+            highlight = QRectF(highlight_x - 1.5, 4, 3, max(0, self.height() - 8))
+            painter.fillRect(highlight, QColor('#E74C3C'))
+
+        painter.end()
+
+
 class ThinkingWidget(QWidget):
 
     def __init__(self, parent=None):
@@ -100,30 +182,27 @@ class ThinkingWidget(QWidget):
         self._spinner = EllipsisSpinner(20)
         layout.addWidget(self._spinner)
 
-        self._text = BodyLabel('Thinking')
+        self._text = EraseTextWidget('AI Thinking')
         layout.addWidget(self._text)
 
         layout.addStretch()
 
     def _onAnimTick(self):
         self._tick += 1
-        word = 'Thinking'
-        n = len(word)
-        pos = self._tick % (n + 3)
-        if pos < n:
-            self._text.setText(word[:pos + 1] + '|')
-        else:
-            self._text.setText(word)
+        suffix = '.' * (self._tick % 4)
+        self._text.setText(f'AI Thinking{suffix}')
 
     def start(self):
         self._spinner.start()
         self._anim_timer.start()
         self._tick = 0
-        self._text.setText('Thinking')
+        self._text.setText('AI Thinking')
+        self._text.start()
 
     def stop(self):
         self._spinner.stop()
         self._anim_timer.stop()
+        self._text.stop()
 
 
 class AngleInputCard(SimpleCardWidget):
@@ -402,8 +481,8 @@ class PresetMotionInterface(ScrollArea):
 
         header_row.addStretch()
 
-        self._ai_trigger_btn = PrimaryPushButton('触发AI分析')
-        self._ai_trigger_btn.setFixedWidth(120)
+        self._ai_trigger_btn = PrimaryPushButton('AI分析')
+        self._ai_trigger_btn.setFixedWidth(108)
         self._ai_trigger_btn.clicked.connect(self._onAiTrigger)
         header_row.addWidget(self._ai_trigger_btn)
 
@@ -412,11 +491,12 @@ class PresetMotionInterface(ScrollArea):
         # AI结果文本显示区域（只读，支持滚动）
         self._ai_result_edit = QTextEdit()
         self._ai_result_edit.setReadOnly(True)
-        self._ai_result_edit.setMaximumHeight(180)
-        self._ai_result_edit.setPlaceholderText('点击"触发AI分析"开始分析sEMG数据...')
+        self._ai_result_edit.setMinimumHeight(280)
+        self._ai_result_edit.setMaximumHeight(340)
+        self._ai_result_edit.setPlaceholderText('点击“AI分析”开始生成 sEMG 分析报告...')
         self._ai_result_edit.setStyleSheet(
             'QTextEdit { border: 1px solid #E0E0E0; border-radius: 6px; '
-            'padding: 8px; font-size: 13px; color: #323130; background: #FAFAFA; }'
+            'padding: 12px; font-size: 14px; color: #323130; background: #FAFAFA; }'
         )
         layout.addWidget(self._ai_result_edit)
 
@@ -440,7 +520,7 @@ class PresetMotionInterface(ScrollArea):
         if thinking:
             self._think_widget.start()
             self._ai_trigger_btn.setEnabled(False)
-            self._ai_result_edit.setPlainText('AI分析中，请稍候...')
+            self._ai_result_edit.setPlainText('AI 分析中，请稍候...')
         else:
             self._think_widget.stop()
             self._ai_trigger_btn.setEnabled(True)
