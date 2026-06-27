@@ -153,7 +153,7 @@ class MainWindow(FluentWindow):
 
         if hasattr(self.comm_client, 'semg_multichannel_received'):
             self.comm_client.semg_multichannel_received.connect(self.ai_analyzer.add_semg_data)
-        elif hasattr(self.comm_client, 'semg_activation_received'):
+        if hasattr(self.comm_client, 'semg_activation_received'):
             self.comm_client.semg_activation_received.connect(self.ai_analyzer.add_semg_data)
         elif hasattr(self.comm_client, 'semg_data_received'):
             self.comm_client.semg_data_received.connect(self.ai_analyzer.add_semg_data)
