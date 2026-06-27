@@ -98,7 +98,7 @@ class Settings:
     # AI分析（Ollama）配置
     AI_OLLAMA_URL = _env('AI_OLLAMA_URL', 'http://localhost:11434')
     AI_MODEL = _env('AI_MODEL', 'llama3.2')
-    AI_BUFFER_SIZE = _env_int('AI_BUFFER_SIZE', 200)
+    AI_BUFFER_SIZE = _env_int('AI_BUFFER_SIZE', 8000)
 
     # 日志配置
     LOG_LEVEL = 'INFO'

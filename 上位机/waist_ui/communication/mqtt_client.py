@@ -32,6 +32,7 @@ class MQTTClient(QObject):
     log_message = Signal(str, str)
     semg_data_received = Signal(int)
     semg_activation_received = Signal(int)
+    semg_multichannel_received = Signal(object)
     _semg_batch_received = Signal(list)
     _start_semg_drain = Signal()
 
@@ -215,6 +216,10 @@ class MQTTClient(QObject):
             raw_text = payload.decode('utf-8', errors='replace').strip()
             preview = raw_text[:50] + ('...' if len(raw_text) > 50 else '')
             self.log_message.emit('DEBUG', f'[sEMG] {preview}')
+            multichannel_samples = self._parse_multichannel_semg_payload(raw_text)
+            if multichannel_samples:
+                self._emit_semg_multichannel(multichannel_samples)
+                return
             try:
                 values = [int(part) for part in raw_text.split() if part]
                 if len(values) > self._semg_batch_limit:
@@ -268,6 +273,73 @@ class MQTTClient(QObject):
 
         if not self._semg_buffer:
             self._semg_drain_timer.stop()
+
+    def _emit_semg_multichannel(self, samples):
+        for sample in samples[-self._semg_batch_limit:]:
+            self.semg_multichannel_received.emit(sample)
+
+    def _parse_multichannel_semg_payload(self, raw_text):
+        try:
+            data = json.loads(raw_text)
+        except Exception:
+            return None
+
+        if isinstance(data, list):
+            samples = [self._coerce_semg_frame(item) for item in data]
+            samples = [sample for sample in samples if sample is not None]
+            return samples or None
+
+        if not isinstance(data, dict):
+            return None
+
+        if isinstance(data.get('samples'), list):
+            samples = [self._coerce_semg_frame(item) for item in data['samples']]
+            samples = [sample for sample in samples if sample is not None]
+            return samples or None
+
+        frame = self._coerce_semg_frame(data)
+        if frame is not None:
+            return [frame]
+
+        channels = {}
+        for name in ('LF', 'LB', 'RF', 'RB'):
+            values = data.get(name)
+            if not isinstance(values, list):
+                return None
+            channels[name] = values
+
+        sample_count = min(len(values) for values in channels.values())
+        if sample_count <= 0:
+            return None
+
+        samples = []
+        start = max(0, sample_count - self._semg_batch_limit)
+        for index in range(start, sample_count):
+            frame = {}
+            valid = True
+            for name, values in channels.items():
+                try:
+                    frame[name] = float(values[index])
+                except (TypeError, ValueError, IndexError):
+                    valid = False
+                    break
+            if valid:
+                samples.append(frame)
+
+        return samples or None
+
+    def _coerce_semg_frame(self, data):
+        if not isinstance(data, dict):
+            return None
+
+        frame = {}
+        for name in ('LF', 'LB', 'RF', 'RB'):
+            try:
+                frame[name] = float(data[name])
+            except (KeyError, TypeError, ValueError):
+                return None
+
+        return frame
 
     def _parse_telemetry(self, payload):
         try:
