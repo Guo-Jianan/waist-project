@@ -1,6 +1,6 @@
 # coding: utf-8
 """
-Prepare compact 4-channel sEMG features for local LLM analysis.
+Prepare compact single-channel sEMG features for local LLM analysis.
 """
 
 from __future__ import annotations
@@ -11,49 +11,26 @@ import re
 from typing import Any
 
 
-CHANNELS = ("LF", "LB", "RF", "RB")
 PREVIEW_POINTS = 24
 EXCERPT_POINTS = 120
 
 
 def build_semg_analysis_payload(samples: list[Any], session_context: str = "") -> dict[str, Any]:
-    channels = _collect_channel_series(samples)
+    values = _collect_semg_series(samples)
     motion_names = _parse_motion_sequence(session_context)
-    present_channels = [name for name in CHANNELS if channels.get(name)]
-    missing_channels = [name for name in CHANNELS if name not in present_channels]
-
-    if not present_channels and channels.get("SEMG"):
-        present_channels = ["SEMG"]
 
     summary = {
-        "input_mode": _detect_input_mode(present_channels, missing_channels),
+        "input_mode": "single_channel",
         "motion_sequence": motion_names,
-        "channels_present": present_channels,
-        "channels_missing": missing_channels,
-        "sample_counts": {
-            name: len(values) for name, values in channels.items() if values
-        },
-        "channel_features": {
-            name: _summarize_series(values)
-            for name, values in channels.items()
-            if values
-        },
-        "symmetry": _build_symmetry_summary(channels),
-        "motion_segments": _build_motion_segments(channels, motion_names),
-        "analysis_limits": _build_analysis_limits(present_channels, missing_channels, motion_names),
+        "sample_count": len(values),
+        "signal_features": _summarize_series(values),
+        "motion_segments": _build_motion_segments(values, motion_names),
+        "trend": _build_trend_summary(values),
+        "analysis_limits": _build_analysis_limits(values, motion_names),
     }
 
-    preview = {
-        name: _make_preview(values)
-        for name, values in channels.items()
-        if values
-    }
-
-    excerpt = {
-        name: _make_excerpt(values)
-        for name, values in channels.items()
-        if values
-    }
+    preview = _make_preview(values)
+    excerpt = _make_excerpt(values)
 
     return {
         "summary": summary,
@@ -65,28 +42,37 @@ def build_semg_analysis_payload(samples: list[Any], session_context: str = "") -
     }
 
 
-def _collect_channel_series(samples: list[Any]) -> dict[str, list[float]]:
-    channels = {name: [] for name in CHANNELS}
-    single_channel: list[float] = []
+def _collect_semg_series(samples: list[Any]) -> list[float]:
+    values: list[float] = []
 
     for sample in samples:
-        if isinstance(sample, dict):
-            has_channel = False
-            for name in CHANNELS:
-                value = sample.get(name)
-                if isinstance(value, (int, float)) and not isinstance(value, bool):
-                    channels[name].append(float(value))
-                    has_channel = True
-            if has_channel:
-                continue
+        value = _extract_numeric_sample(sample)
+        if value is not None:
+            values.append(value)
 
-        if isinstance(sample, (int, float)) and not isinstance(sample, bool):
-            single_channel.append(float(sample))
+    return values
 
-    if single_channel:
-        channels["SEMG"] = single_channel
 
-    return channels
+def _extract_numeric_sample(sample: Any) -> float | None:
+    if isinstance(sample, bool):
+        return None
+
+    if isinstance(sample, (int, float)):
+        return float(sample)
+
+    if isinstance(sample, dict):
+        for key in ("SEMG", "semg", "sEMG", "value", "activation", "envelope", "display"):
+            value = sample.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return float(value)
+        return None
+
+    if isinstance(sample, (list, tuple)) and sample:
+        value = sample[-1]
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+
+    return None
 
 
 def _parse_motion_sequence(session_context: str) -> list[str]:
@@ -129,103 +115,68 @@ def _summarize_series(values: list[float]) -> dict[str, Any]:
         "peak_to_peak": _round(max(values) - min(values)),
         "p90": _round(_percentile(values, 0.90)),
         "p95": _round(_percentile(values, 0.95)),
+        "first_third_rms": _round(_window_rms(values[: max(1, count // 3)])),
+        "last_third_rms": _round(_window_rms(values[-max(1, count // 3):])),
     }
 
 
-def _build_symmetry_summary(channels: dict[str, list[float]]) -> dict[str, Any]:
-    summary = {}
-
-    for left, right, key in (
-        ("LF", "RF", "front_left_right"),
-        ("LB", "RB", "back_left_right"),
-        ("LF", "LB", "left_front_back"),
-        ("RF", "RB", "right_front_back"),
-    ):
-        left_values = channels.get(left) or []
-        right_values = channels.get(right) or []
-        if not left_values or not right_values:
-            continue
-
-        left_mean = sum(left_values) / len(left_values)
-        right_mean = sum(right_values) / len(right_values)
-        denom = max(abs(left_mean), abs(right_mean), 1e-6)
-        summary[key] = {
-            "left_or_front_mean": _round(left_mean),
-            "right_or_back_mean": _round(right_mean),
-            "absolute_gap": _round(abs(left_mean - right_mean)),
-            "relative_gap": _round(abs(left_mean - right_mean) / denom),
-        }
-
-    return summary
-
-
-def _build_motion_segments(channels: dict[str, list[float]], motion_names: list[str]) -> list[dict[str, Any]]:
-    if not motion_names:
+def _build_motion_segments(values: list[float], motion_names: list[str]) -> list[dict[str, Any]]:
+    if not values or not motion_names:
         return []
 
     segments = []
     segment_count = len(motion_names)
 
     for index, motion_name in enumerate(motion_names):
-        segment_features = {}
-        sample_range = {}
+        start = int(len(values) * index / segment_count)
+        end = int(len(values) * (index + 1) / segment_count)
+        segment = values[start:end]
+        if not segment:
+            continue
 
-        for channel_name, values in channels.items():
-            if not values:
-                continue
-
-            start = int(len(values) * index / segment_count)
-            end = int(len(values) * (index + 1) / segment_count)
-            segment = values[start:end]
-            if not segment:
-                continue
-
-            sample_range[channel_name] = [start, max(start, end - 1)]
-            segment_features[channel_name] = _summarize_series(segment)
-
-        if segment_features:
-            segments.append(
-                {
-                    "motion_name": motion_name,
-                    "sample_range": sample_range,
-                    "channel_features": segment_features,
-                }
-            )
+        segments.append(
+            {
+                "motion_name": motion_name,
+                "sample_range": [start, max(start, end - 1)],
+                "features": _summarize_series(segment),
+            }
+        )
 
     return segments
 
 
-def _build_analysis_limits(
-    present_channels: list[str],
-    missing_channels: list[str],
-    motion_names: list[str],
-) -> list[str]:
-    limits = []
+def _build_trend_summary(values: list[float]) -> dict[str, Any]:
+    if len(values) < 3:
+        return {}
 
-    if not present_channels:
+    third = max(1, len(values) // 3)
+    first = values[:third]
+    last = values[-third:]
+    first_rms = _window_rms(first)
+    last_rms = _window_rms(last)
+    denom = max(abs(first_rms), 1e-6)
+
+    return {
+        "first_third_rms": _round(first_rms),
+        "last_third_rms": _round(last_rms),
+        "relative_rms_change": _round((last_rms - first_rms) / denom),
+    }
+
+
+def _build_analysis_limits(values: list[float], motion_names: list[str]) -> list[str]:
+    limits = [
+        "当前输入为单通道 sEMG，不能判断左右对称性、前后协调性或具体通道代偿。",
+    ]
+
+    if not values:
         limits.append("未检测到有效的 sEMG 数据。")
-
-    if missing_channels:
-        limits.append(
-            "当前输入未覆盖完整四通道，仅能基于已提供通道进行判断。"
-        )
 
     if not motion_names:
         limits.append("未提供动作序列，因此无法进行分动作对比。")
     else:
-        limits.append("动作分段按动作顺序等长切分，只适合做近似比较。")
+        limits.append("动作分段按动作顺序等长切分，只适合做近似趋势比较。")
 
     return limits
-
-
-def _detect_input_mode(present_channels: list[str], missing_channels: list[str]) -> str:
-    if present_channels == ["SEMG"]:
-        return "single_channel"
-    if present_channels and not missing_channels:
-        return "four_channel"
-    if present_channels:
-        return "partial_channel"
-    return "empty"
 
 
 def _make_preview(values: list[float]) -> dict[str, Any]:
@@ -250,6 +201,12 @@ def _make_excerpt(values: list[float]) -> dict[str, Any]:
         "head": [_round(v) for v in values[:head_count]],
         "tail": [_round(v) for v in values[-tail_count:]],
     }
+
+
+def _window_rms(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    return math.sqrt(sum(v * v for v in values) / len(values))
 
 
 def _percentile(values: list[float], ratio: float) -> float:
