@@ -1,5 +1,7 @@
 # coding: utf-8
 import collections
+import html
+import re
 
 import numpy as np
 import pyqtgraph as pg
@@ -192,6 +194,7 @@ class PresetMotionInterface(ScrollArea):
 
     MAX_CHART_POINTS = 10000
     SEMG_VALUE_SCALE = 1024.0
+    _TABLE_SEPARATOR_RE = re.compile(r'^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$')
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -424,17 +427,142 @@ class PresetMotionInterface(ScrollArea):
             'QTextEdit { border: 1px solid #E0E0E0; border-radius: 6px; '
             'padding: 12px; font-size: 14px; color: #323130; background: #FAFAFA; }'
         )
+        self._ai_result_edit.document().setDefaultStyleSheet(
+            'body { font-size: 14px; color: #323130; line-height: 1.7; }'
+            'h1 { font-size: 22px; margin: 6px 0 14px 0; color: #1F2937; }'
+            'h2 { font-size: 18px; margin: 14px 0 8px 0; color: #1F2937; }'
+            'p { margin: 6px 0; }'
+            'ul, ol { margin: 6px 0 6px 22px; }'
+            'li { margin: 4px 0; }'
+            'table { border-collapse: collapse; width: 100%; margin: 10px 0 14px 0; }'
+            'th { background: #F3F4F6; font-weight: 600; }'
+            'th, td { border: 1px solid #D1D5DB; padding: 8px 10px; text-align: left; }'
+            'code { background: #F3F4F6; padding: 1px 4px; border-radius: 4px; }'
+        )
         layout.addWidget(self._ai_result_edit)
 
         return card
+
+    @staticmethod
+    def _format_inline_markdown(text: str) -> str:
+        escaped = html.escape(text.strip())
+        escaped = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', escaped)
+        escaped = re.sub(r'`([^`]+)`', r'<code>\1</code>', escaped)
+        return escaped
+
+    @classmethod
+    def _is_table_block_start(cls, lines, index: int) -> bool:
+        if index + 1 >= len(lines):
+            return False
+        return '|' in lines[index] and bool(cls._TABLE_SEPARATOR_RE.match(lines[index + 1]))
+
+    @staticmethod
+    def _parse_table_cells(line: str) -> list[str]:
+        text = line.strip()
+        if text.startswith('|'):
+            text = text[1:]
+        if text.endswith('|'):
+            text = text[:-1]
+        return [cell.strip() for cell in text.split('|')]
+
+    @classmethod
+    def _render_table_html(cls, lines, start: int) -> tuple[str, int]:
+        header_cells = cls._parse_table_cells(lines[start])
+        body_rows = []
+        index = start + 2
+
+        while index < len(lines):
+            line = lines[index]
+            if not line.strip() or '|' not in line:
+                break
+            body_rows.append(cls._parse_table_cells(line))
+            index += 1
+
+        parts = ['<table><thead><tr>']
+        parts.extend(f'<th>{cls._format_inline_markdown(cell)}</th>' for cell in header_cells)
+        parts.append('</tr></thead><tbody>')
+
+        for row in body_rows:
+            parts.append('<tr>')
+            parts.extend(f'<td>{cls._format_inline_markdown(cell)}</td>' for cell in row)
+            parts.append('</tr>')
+
+        parts.append('</tbody></table>')
+        return ''.join(parts), index
+
+    @classmethod
+    def _render_markdown_html(cls, text: str) -> str:
+        lines = text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+        blocks = []
+        index = 0
+
+        while index < len(lines):
+            line = lines[index]
+            stripped = line.strip()
+
+            if not stripped:
+                index += 1
+                continue
+
+            if cls._is_table_block_start(lines, index):
+                table_html, index = cls._render_table_html(lines, index)
+                blocks.append(table_html)
+                continue
+
+            if stripped.startswith('#'):
+                level = len(stripped) - len(stripped.lstrip('#'))
+                level = max(1, min(level, 6))
+                content = cls._format_inline_markdown(stripped[level:].strip())
+                blocks.append(f'<h{level}>{content}</h{level}>')
+                index += 1
+                continue
+
+            if stripped.startswith('- '):
+                items = []
+                while index < len(lines) and lines[index].strip().startswith('- '):
+                    items.append(
+                        f'<li>{cls._format_inline_markdown(lines[index].strip()[2:])}</li>'
+                    )
+                    index += 1
+                blocks.append(f"<ul>{''.join(items)}</ul>")
+                continue
+
+            if re.match(r'^\d+\.\s+', stripped):
+                items = []
+                while index < len(lines) and re.match(r'^\d+\.\s+', lines[index].strip()):
+                    item_text = re.sub(r'^\d+\.\s+', '', lines[index].strip(), count=1)
+                    items.append(f'<li>{cls._format_inline_markdown(item_text)}</li>')
+                    index += 1
+                blocks.append(f"<ol>{''.join(items)}</ol>")
+                continue
+
+            paragraph_lines = [stripped]
+            index += 1
+            while index < len(lines):
+                next_line = lines[index].strip()
+                if not next_line:
+                    break
+                if (
+                    next_line.startswith('#')
+                    or next_line.startswith('- ')
+                    or re.match(r'^\d+\.\s+', next_line)
+                    or cls._is_table_block_start(lines, index)
+                ):
+                    break
+                paragraph_lines.append(next_line)
+                index += 1
+            paragraph = '<br/>'.join(cls._format_inline_markdown(part) for part in paragraph_lines)
+            blocks.append(f'<p>{paragraph}</p>')
+
+        return f"<html><body>{''.join(blocks)}</body></html>"
 
     def _onAiTrigger(self):
         """点击触发AI分析按钮"""
         if hasattr(self, '_ai_analyzer') and self._ai_analyzer:
             self._ai_analyzer.trigger_analysis()
         else:
-            self._ai_result_edit.setPlainText(
-                '[错误] AI分析模块未连接，请检查配置。'
+            self._ai_result_edit.setHtml(
+                self._render_markdown_html('[错误] AI分析模块未连接，请检查配置。')
             )
 
     def set_ai_analyzer(self, analyzer):
@@ -446,18 +574,22 @@ class PresetMotionInterface(ScrollArea):
         if thinking:
             self._think_widget.start()
             self._ai_trigger_btn.setEnabled(False)
-            self._ai_result_edit.setPlainText('AI 分析中，请稍候...')
+            self._ai_result_edit.setHtml(
+                self._render_markdown_html('AI 分析中，请稍候...')
+            )
         else:
             self._think_widget.stop()
             self._ai_trigger_btn.setEnabled(True)
 
     def on_ai_result(self, text: str):
         """AI分析结果就绪"""
-        self._ai_result_edit.setPlainText(text)
+        self._ai_result_edit.setHtml(self._render_markdown_html(text))
 
     def on_ai_error(self, error: str):
         """AI分析出错"""
-        self._ai_result_edit.setPlainText(f'[错误] {error}')
+        self._ai_result_edit.setHtml(
+            self._render_markdown_html(f'[错误] {error}')
+        )
 
     def __createButtons(self):
         widget = QWidget()
