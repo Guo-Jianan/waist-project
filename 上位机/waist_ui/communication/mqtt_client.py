@@ -23,6 +23,14 @@ from communication.semg_filter import SemgSignalProcessor
 from communication.semg_resampler import SemgResampler
 
 
+SEMG_CHANNEL_ALIASES = {
+    'LF': ('LF', 'lf', 'left_front', 'leftfront', 'front_left', 'frontleft', 'CH1', 'ch1', 'SEMG1', 'semg1', 'EMG1', 'emg1'),
+    'LB': ('LB', 'lb', 'left_back', 'leftback', 'back_left', 'backleft', 'CH2', 'ch2', 'SEMG2', 'semg2', 'EMG2', 'emg2'),
+    'RF': ('RF', 'rf', 'right_front', 'rightfront', 'front_right', 'frontright', 'CH3', 'ch3', 'SEMG3', 'semg3', 'EMG3', 'emg3'),
+    'RB': ('RB', 'rb', 'right_back', 'rightback', 'back_right', 'backright', 'CH4', 'ch4', 'SEMG4', 'semg4', 'EMG4', 'emg4'),
+}
+
+
 class MQTTClient(QObject):
     connected = Signal()
     disconnected = Signal()
@@ -285,6 +293,10 @@ class MQTTClient(QObject):
             return None
 
         if isinstance(data, list):
+            if data and isinstance(data[0], (list, tuple)):
+                samples = [self._coerce_semg_sequence(item) for item in data]
+                samples = [sample for sample in samples if sample is not None]
+                return samples or None
             samples = [self._coerce_semg_frame(item) for item in data]
             samples = [sample for sample in samples if sample is not None]
             return samples or None
@@ -292,8 +304,16 @@ class MQTTClient(QObject):
         if not isinstance(data, dict):
             return None
 
+        nested = self._extract_nested_semg_dict(data)
+        if nested is not None:
+            data = nested
+
         if isinstance(data.get('samples'), list):
-            samples = [self._coerce_semg_frame(item) for item in data['samples']]
+            source = data['samples']
+            if source and isinstance(source[0], (list, tuple)):
+                samples = [self._coerce_semg_sequence(item) for item in source]
+            else:
+                samples = [self._coerce_semg_frame(item) for item in source]
             samples = [sample for sample in samples if sample is not None]
             return samples or None
 
@@ -301,12 +321,9 @@ class MQTTClient(QObject):
         if frame is not None:
             return [frame]
 
-        channels = {}
-        for name in ('LF', 'LB', 'RF', 'RB'):
-            values = data.get(name)
-            if not isinstance(values, list):
-                return None
-            channels[name] = values
+        channels = self._extract_multichannel_arrays(data)
+        if channels is None:
+            return None
 
         sample_count = min(len(values) for values in channels.values())
         if sample_count <= 0:
@@ -328,6 +345,22 @@ class MQTTClient(QObject):
 
         return samples or None
 
+    def _extract_nested_semg_dict(self, data):
+        for key in ('data', 'payload', 'channels', 'semg', 'sEMG'):
+            value = data.get(key)
+            if isinstance(value, dict):
+                return value
+        return None
+
+    def _extract_multichannel_arrays(self, data):
+        channels = {}
+        for name in ('LF', 'LB', 'RF', 'RB'):
+            values = self._lookup_channel_value(data, name)
+            if not isinstance(values, list):
+                return None
+            channels[name] = values
+        return channels
+
     def _coerce_semg_frame(self, data):
         if not isinstance(data, dict):
             return None
@@ -335,11 +368,31 @@ class MQTTClient(QObject):
         frame = {}
         for name in ('LF', 'LB', 'RF', 'RB'):
             try:
-                frame[name] = float(data[name])
-            except (KeyError, TypeError, ValueError):
+                frame[name] = float(self._lookup_channel_value(data, name))
+            except (TypeError, ValueError):
                 return None
 
         return frame
+
+    def _coerce_semg_sequence(self, data):
+        if not isinstance(data, (list, tuple)) or len(data) < 4:
+            return None
+
+        try:
+            return {
+                'LF': float(data[0]),
+                'LB': float(data[1]),
+                'RF': float(data[2]),
+                'RB': float(data[3]),
+            }
+        except (TypeError, ValueError):
+            return None
+
+    def _lookup_channel_value(self, data, channel):
+        for alias in SEMG_CHANNEL_ALIASES[channel]:
+            if alias in data:
+                return data[alias]
+        return None
 
     def _parse_telemetry(self, payload):
         try:
