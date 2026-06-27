@@ -151,8 +151,6 @@ class MainWindow(FluentWindow):
         else:
             self.logInterface.addLog('WARNING', f'提示词模板文件未找到: {prompt_path}')
 
-        if hasattr(self.comm_client, 'semg_multichannel_received'):
-            self.comm_client.semg_multichannel_received.connect(self.ai_analyzer.add_semg_data)
         if hasattr(self.comm_client, 'semg_activation_received'):
             self.comm_client.semg_activation_received.connect(self.ai_analyzer.add_semg_data)
         elif hasattr(self.comm_client, 'semg_data_received'):
