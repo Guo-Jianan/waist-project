@@ -3,8 +3,8 @@ import collections
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, QTimer, QPointF, QRectF, QSize
-from PySide6.QtGui import QDoubleValidator, QColor, QPainter, QBrush, QPen, QFont, QFontMetrics
+from PySide6.QtCore import Qt, QTimer, QPointF
+from PySide6.QtGui import QDoubleValidator, QColor, QPainter, QBrush
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTextEdit
 from qfluentwidgets import (
     ScrollArea, SubtitleLabel, BodyLabel, CaptionLabel,
@@ -82,96 +82,16 @@ class EllipsisSpinner(QWidget):
         self._timer.stop()
 
 
-class EraseTextWidget(QWidget):
-
-    def __init__(self, text='AI Thinking', parent=None):
-        super().__init__(parent)
-        self._text = text
-        self._phase = 0.0
-        self._direction = 1
-        self._font = QFont()
-        self._font.setPointSize(12)
-        self._font.setWeight(QFont.Medium)
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._tick)
-        self._timer.setInterval(45)
-        self.setMinimumHeight(28)
-
-    def sizeHint(self):
-        metrics = QFontMetrics(self._font)
-        return QSize(metrics.horizontalAdvance(self._text) + 12, max(28, metrics.height() + 8))
-
-    def setText(self, text):
-        self._text = text
-        self.updateGeometry()
-        self.update()
-
-    def _tick(self):
-        step = 0.08
-        self._phase += step * self._direction
-        if self._phase >= 1.0:
-            self._phase = 1.0
-            self._direction = -1
-        elif self._phase <= 0.0:
-            self._phase = 0.0
-            self._direction = 1
-        self.update()
-
-    def start(self):
-        self._phase = 0.0
-        self._direction = 1
-        self._timer.start()
-        self.update()
-
-    def stop(self):
-        self._timer.stop()
-        self._phase = 0.0
-        self._direction = 1
-        self.update()
-
-    def paintEvent(self, event):
-        if not self._text:
-            return
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setRenderHint(QPainter.TextAntialiasing)
-        painter.setFont(self._font)
-
-        metrics = QFontMetrics(self._font)
-        text_width = metrics.horizontalAdvance(self._text)
-        baseline = (self.height() + metrics.ascent() - metrics.descent()) / 2.0
-        text_rect = QRectF(0, 0, text_width, self.height())
-
-        ghost_pen = QPen(QColor('#9AA4B2'))
-        painter.setPen(ghost_pen)
-        painter.drawText(QPointF(0, baseline), self._text)
-
-        visible_left = text_width * self._phase
-        visible_rect = QRectF(visible_left, 0, max(0.0, text_width - visible_left), self.height())
-        if visible_rect.width() > 0:
-            painter.save()
-            painter.setClipRect(visible_rect)
-            painter.setPen(QPen(QColor('#1F2937')))
-            painter.drawText(QPointF(0, baseline), self._text)
-            painter.restore()
-
-        if self._timer.isActive():
-            highlight_x = min(text_width, visible_left)
-            highlight = QRectF(highlight_x - 1.5, 4, 3, max(0, self.height() - 8))
-            painter.fillRect(highlight, QColor('#E74C3C'))
-
-        painter.end()
-
-
 class ThinkingWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._tick = 0
+        self._cursor_visible = True
+        self._base_text = 'AI分析中'
         self._anim_timer = QTimer(self)
         self._anim_timer.timeout.connect(self._onAnimTick)
-        self._anim_timer.setInterval(80)
+        self._anim_timer.setInterval(90)
         self.__initUI()
 
     def __initUI(self):
@@ -182,27 +102,33 @@ class ThinkingWidget(QWidget):
         self._spinner = EllipsisSpinner(20)
         layout.addWidget(self._spinner)
 
-        self._text = EraseTextWidget('AI Thinking')
+        self._text = BodyLabel(self._base_text)
+        self._text.setStyleSheet('font-size: 14px; font-weight: 600; color: #1F2937;')
         layout.addWidget(self._text)
 
         layout.addStretch()
 
     def _onAnimTick(self):
         self._tick += 1
-        suffix = '.' * (self._tick % 4)
-        self._text.setText(f'AI Thinking{suffix}')
+        total = len(self._base_text)
+        visible = (self._tick % (total + 4)) + 1
+        if visible > total:
+            visible = total
+        self._cursor_visible = not self._cursor_visible
+        cursor = '|' if self._cursor_visible else ' '
+        self._text.setText(f'{self._base_text[:visible]}{cursor}')
 
     def start(self):
         self._spinner.start()
         self._anim_timer.start()
         self._tick = 0
-        self._text.setText('AI Thinking')
-        self._text.start()
+        self._cursor_visible = True
+        self._text.setText('A|')
 
     def stop(self):
         self._spinner.stop()
         self._anim_timer.stop()
-        self._text.stop()
+        self._text.setText(self._base_text)
 
 
 class AngleInputCard(SimpleCardWidget):
