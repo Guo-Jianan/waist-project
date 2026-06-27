@@ -1,22 +1,29 @@
 # coding: utf-8
 """
-主窗口
-5个Tab：数据监测、通信日志、康复训练、趣味游戏、用户自定义
+主窗口，包含数据监测、通信日志、康复训练、趣味游戏和用户自定义界面。
 """
 
-from PySide6.QtCore import Qt
-from qfluentwidgets import FluentWindow, NavigationItemPosition, FluentIcon, InfoBar, InfoBarPosition
+from pathlib import Path
 
+from PySide6.QtCore import Qt
+from qfluentwidgets import (
+    FluentIcon,
+    FluentWindow,
+    InfoBar,
+    InfoBarPosition,
+    NavigationItemPosition,
+)
+
+from config.settings import Settings
 from ui.data_monitor import DataMonitorInterface
+from ui.fun_game import FunGameInterface
 from ui.log_interface import LogInterface
 from ui.rehab_training import PresetMotionInterface
-from ui.fun_game import FunGameInterface
 from ui.user_custom import UserCustomInterface
-from config.settings import Settings
 
 
 class MainWindow(FluentWindow):
-    """主窗口 - 5个Tab"""
+    """主窗口。"""
 
     def __init__(self):
         super().__init__()
@@ -41,40 +48,40 @@ class MainWindow(FluentWindow):
         self.addSubInterface(
             self.dataMonitorInterface,
             FluentIcon.SPEED_HIGH,
-            '数据监测'
+            '数据监测',
         )
         self.addSubInterface(
             self.logInterface,
             FluentIcon.CHAT,
-            '通信日志'
+            '通信日志',
         )
         self.addSubInterface(
             self.rehabTrainingInterface,
             FluentIcon.HEART,
-            '康复训练'
+            '康复训练',
         )
         self.addSubInterface(
             self.funGameInterface,
             FluentIcon.EMOJI_TAB_SYMBOLS,
-            '趣味游戏'
+            '趣味游戏',
         )
         self.addSubInterface(
             self.userCustomInterface,
             FluentIcon.SETTING,
             '用户自定义',
-            NavigationItemPosition.BOTTOM
+            NavigationItemPosition.BOTTOM,
         )
 
     def __initCommunication(self):
-        from communication import TCPClient, MQTTClient
+        from communication import MQTTClient, TCPClient
+        from backend.kinematics import Kinematics, angles_to_motor_commands
 
         self.comm_mode = Settings.get_comm_mode()
         if self.comm_mode == 'mqtt':
             self.comm_client = MQTTClient(Settings.get_mqtt_config())
         else:
-            self.comm_client = TCPClient(ip="192.168.4.1", port=8080)
+            self.comm_client = TCPClient(ip='192.168.4.1', port=8080)
 
-        # Compatibility alias for older code paths that still refer to tcp_client.
         self.tcp_client = self.comm_client
 
         self.comm_client.connected.connect(self.__onConnected)
@@ -85,14 +92,20 @@ class MainWindow(FluentWindow):
         self.comm_client.log_message.connect(self.__onLogMessage)
 
         if hasattr(self.comm_client, 'semg_data_received'):
-            # 显示数据：优先使用插值信号，使波形更密集平滑
             if hasattr(self.comm_client, 'semg_display_signal'):
-                self.comm_client.semg_display_signal.connect(self.dataMonitorInterface.append_sEMG_data)
-                self.comm_client.semg_display_signal.connect(self.rehabTrainingInterface.append_sEMG_data)
+                self.comm_client.semg_display_signal.connect(
+                    self.dataMonitorInterface.append_sEMG_data
+                )
+                self.comm_client.semg_display_signal.connect(
+                    self.rehabTrainingInterface.append_sEMG_data
+                )
             else:
-                # 回退：TCPClient 或重采样器未启用时使用原始数据
-                self.comm_client.semg_data_received.connect(self.dataMonitorInterface.append_sEMG_data)
-                self.comm_client.semg_data_received.connect(self.rehabTrainingInterface.append_sEMG_data)
+                self.comm_client.semg_data_received.connect(
+                    self.dataMonitorInterface.append_sEMG_data
+                )
+                self.comm_client.semg_data_received.connect(
+                    self.rehabTrainingInterface.append_sEMG_data
+                )
 
         self.dataMonitorInterface.setForceChangedCallback(self.__onForceChanged)
         self.dataMonitorInterface.setResetCallback(self.__onReset)
@@ -100,7 +113,6 @@ class MainWindow(FluentWindow):
         self.logInterface.setConnectCallback(self.__onConnectClicked)
         self.logInterface.setSendCommandCallback(self.__onSendCommand)
 
-        from backend.kinematics import Kinematics, angles_to_motor_commands
         self.kinematics = Kinematics()
         self.rehabTrainingInterface.setConvertCallback(
             lambda a, b, g: angles_to_motor_commands(a, b, g, self.kinematics)
@@ -113,13 +125,15 @@ class MainWindow(FluentWindow):
 
         self.logInterface.addLog('INFO', f'Communication mode: {self.comm_mode.upper()}')
         if self.comm_mode == 'mqtt':
-            self.logInterface.addLog('INFO', 'MQTT模式使用.env中的EMQX配置，连接页IP/端口输入不会覆盖MQTT配置')
-        self.logInterface.addLog('INFO', '请在通信日志界面输入IP地址和端口，点击连接')
+            self.logInterface.addLog(
+                'INFO',
+                'MQTT 模式使用 .env 中的 EMQX 配置，连接页的 IP/端口不会覆盖 MQTT 配置。',
+            )
+        self.logInterface.addLog('INFO', '请在通信日志界面输入 IP 地址和端口，点击连接。')
 
     def __initAiAnalyzer(self):
-        """初始化AI分析模块（Ollama）"""
+        """初始化 Ollama sEMG 分析模块。"""
         from backend.ai_analyzer import AiAnalyzer
-        from pathlib import Path
 
         ai_config = Settings.get_ai_config()
         self.ai_analyzer = AiAnalyzer(
@@ -129,58 +143,59 @@ class MainWindow(FluentWindow):
             parent=self,
         )
 
-        # 加载sEMG分析提示词模板
         prompt_path = Path(__file__).resolve().parent.parent / 'config' / 'semg_analysis_prompt.md'
         if prompt_path.exists():
             prompt_text = prompt_path.read_text(encoding='utf-8')
-            # 提取prompt中 输出格式 之前的内容（去除#开头的标题和说明部分，只保留分析指令）
             self.ai_analyzer.set_prompt(prompt_text)
-            self.logInterface.addLog('INFO', f'已加载AI提示词模板: {prompt_path.name}')
+            self.logInterface.addLog('INFO', f'已加载 AI 提示词模板: {prompt_path.name}')
         else:
-            self.logInterface.addLog('WARNING', f'提示词模板文件未找到: {prompt_path}，将使用默认prompt')
+            self.logInterface.addLog('WARNING', f'提示词模板文件未找到: {prompt_path}')
 
-        # 将sEMG数据同时喂给AI分析器
-        if hasattr(self.comm_client, 'semg_activation_received'):
+        if hasattr(self.comm_client, 'semg_multichannel_received'):
+            self.comm_client.semg_multichannel_received.connect(self.ai_analyzer.add_semg_data)
+        elif hasattr(self.comm_client, 'semg_activation_received'):
             self.comm_client.semg_activation_received.connect(self.ai_analyzer.add_semg_data)
         elif hasattr(self.comm_client, 'semg_data_received'):
             self.comm_client.semg_data_received.connect(self.ai_analyzer.add_semg_data)
 
-        # 连接信号到康复训练界面
         self.ai_analyzer.thinking_changed.connect(self.rehabTrainingInterface.on_ai_thinking)
         self.ai_analyzer.result_ready.connect(self.rehabTrainingInterface.on_ai_result)
         self.ai_analyzer.error_occurred.connect(self.rehabTrainingInterface.on_ai_error)
-
-        # 将AI分析器传给康复训练界面
         self.rehabTrainingInterface.set_ai_analyzer(self.ai_analyzer)
 
-        self.logInterface.addLog('INFO',
-            f'AI分析模块已初始化: 模型={ai_config["model"]}, '
-            f'Ollama={ai_config["ollama_url"]}'
+        self.logInterface.addLog(
+            'INFO',
+            f'AI 分析模块已初始化: 模型={ai_config["model"]}, Ollama={ai_config["ollama_url"]}',
         )
 
     def __onConnectClicked(self, ip, port):
-        """连接按钮点击"""
         if self.comm_mode == 'tcp' and hasattr(self.comm_client, 'set_server'):
             self.comm_client.set_server(ip, port)
         self.comm_client.connect_to_server()
 
     def __onConnected(self):
-        self.dataMonitorInterface.setConnectionStatus(True, f"{self.comm_client.server_ip}:{self.comm_client.server_port}")
+        self.dataMonitorInterface.setConnectionStatus(
+            True,
+            f'{self.comm_client.server_ip}:{self.comm_client.server_port}',
+        )
         self.logInterface.setConnectionState(True)
-        self.logInterface.addLog('INFO', f"已连接到 {self.comm_client.server_ip}:{self.comm_client.server_port}")
+        self.logInterface.addLog(
+            'INFO',
+            f'已连接到 {self.comm_client.server_ip}:{self.comm_client.server_port}',
+        )
 
         if hasattr(self.comm_client, 'get_local_ip'):
             local_ip = self.comm_client.get_local_ip()
-            self.logInterface.addLog('INFO', f"本地IP: {local_ip}")
+            self.logInterface.addLog('INFO', f'本地 IP: {local_ip}')
 
         InfoBar.success(
             title='连接成功',
-            content=f"已连接到 {self.comm_client.server_ip}",
+            content=f'已连接到 {self.comm_client.server_ip}',
             orient=Qt.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,
             duration=3000,
-            parent=self
+            parent=self,
         )
 
     def __onDisconnected(self):
@@ -190,12 +205,12 @@ class MainWindow(FluentWindow):
 
     def __onRawDataReceived(self, data):
         hex_str = ' '.join(f'{b:02X}' for b in data)
-        self.logInterface.addLog('DEBUG', f"[RX] {hex_str}")
+        self.logInterface.addLog('DEBUG', f'[RX] {hex_str}')
 
     def __onRxDataChanged(self, data):
         if isinstance(data, dict):
             self.dataMonitorInterface.updateSensorData(data)
-        self.logInterface.addLog('DEBUG', f"[RX] {data}")
+        self.logInterface.addLog('DEBUG', f'[RX] {data}')
 
     def __onLogMessage(self, level, message):
         self.logInterface.addLog(level, message)
@@ -210,19 +225,18 @@ class MainWindow(FluentWindow):
             isClosable=True,
             position=InfoBarPosition.TOP,
             duration=5000,
-            parent=self
+            parent=self,
         )
 
     def __onForceChanged(self, rb, rf, lb, lf):
-        self.logInterface.addLog('DEBUG', f"发送电机: LF={lf}, LB={lb}, RF={rf}, RB={rb}")
+        self.logInterface.addLog('DEBUG', f'发送电机: LF={lf}, LB={lb}, RF={rf}, RB={rb}')
         self.comm_client.send_motor_cmd(rb, rf, lb, lf)
 
     def __onReset(self):
         self.dataMonitorInterface.reset_values()
         self.logInterface.addLog('INFO', '系统已复位')
-
         self.comm_client.send_motor_cmd(0, 0, 0, 0)
 
     def __onSendCommand(self, command):
-        self.logInterface.addLog('INFO', f"发送命令: {command}")
+        self.logInterface.addLog('INFO', f'发送命令: {command}')
         self.comm_client.send_text(command)
