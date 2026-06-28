@@ -7,27 +7,12 @@ from datetime import datetime
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, QTimer, QPointF, QMarginsF
-from PySide6.QtGui import QDoubleValidator, QColor, QPainter, QBrush, QPageLayout, QPageSize
+from PySide6.QtGui import QColor, QPainter, QBrush, QPageLayout, QPageSize
 from PySide6.QtPrintSupport import QPrinter
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QFileDialog
 from qfluentwidgets import (
-    ScrollArea, SubtitleLabel, BodyLabel, CaptionLabel,
-    CardWidget, SimpleCardWidget,
-    LineEdit, ProgressBar, ComboBox,
-    PrimaryPushButton, PushButton, InfoBadge, InfoBadgePosition,
+    ScrollArea, SubtitleLabel, BodyLabel, CardWidget, PrimaryPushButton, PushButton
 )
-
-MOTION_TYPES = [
-    '前向弯腰',
-    '侧向弯腰',
-    '转身',
-]
-
-DEFAULT_MOTIONS = [
-    (0, 0.2),
-    (1, 0.2),
-    (2, 0.2),
-]
 
 _ELLIPSIS_COLORS = ['#e15b64', '#f47e60', '#f8b26a', '#abbd81', '#e15b64']
 
@@ -51,9 +36,8 @@ class EllipsisSpinner(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        w, h = self.width(), self.height()
-        cx = w / 2.0
-        cy = h / 2.0
+        cx = self.width() / 2.0
+        cy = self.height() / 2.0
         n = len(_ELLIPSIS_COLORS)
         spacing = 8
         total_w = (n - 1) * spacing
@@ -63,16 +47,12 @@ class EllipsisSpinner(QWidget):
         for i in range(n):
             offset = (self._phase - i * (period // n)) % period
             t = offset / float(period)
-            if t < 0.5:
-                scale = t * 2.0
-            else:
-                scale = (1.0 - t) * 2.0
+            scale = t * 2.0 if t < 0.5 else (1.0 - t) * 2.0
             r = 2.0 + scale * 5.0
             x = start_x + i * spacing
 
             color = QColor(_ELLIPSIS_COLORS[i])
-            alpha = int(80 + scale * 175)
-            color.setAlpha(alpha)
+            color.setAlpha(int(80 + scale * 175))
             p.setPen(Qt.NoPen)
             p.setBrush(QBrush(color))
             p.drawEllipse(QPointF(x, cy), r, r)
@@ -109,7 +89,6 @@ class ThinkingWidget(QWidget):
         self._text = BodyLabel(self._base_text)
         self._text.setStyleSheet('font-size: 14px; font-weight: 600; color: #1F2937;')
         layout.addWidget(self._text)
-
         layout.addStretch()
 
     def _onAnimTick(self):
@@ -135,64 +114,7 @@ class ThinkingWidget(QWidget):
         self._text.setText(self._base_text)
 
 
-class AngleInputCard(SimpleCardWidget):
-
-    def __init__(self, motion_type=0, angle=0.2, parent=None):
-        super().__init__(parent)
-        self._motion_combo = None
-        self._angle_input = None
-        self.__initUI(motion_type, angle)
-
-    def __initUI(self, motion_type, angle):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(10)
-
-        self._motion_combo = ComboBox()
-        self._motion_combo.addItems(MOTION_TYPES)
-        self._motion_combo.setCurrentIndex(motion_type)
-        self._motion_combo.setFixedWidth(120)
-        layout.addWidget(self._motion_combo)
-
-        validator = QDoubleValidator(-9999.0, 9999.0, 2)
-
-        angle_label = CaptionLabel('角度:')
-        layout.addWidget(angle_label)
-
-        self._angle_input = LineEdit()
-        self._angle_input.setFixedWidth(80)
-        self._angle_input.setValidator(validator)
-        self._angle_input.setText(str(angle))
-        layout.addWidget(self._angle_input)
-
-        layout.addStretch()
-
-        self._delete_btn = PushButton('删除')
-        self._delete_btn.setFixedWidth(70)
-        layout.addWidget(self._delete_btn)
-
-    def getName(self):
-        return MOTION_TYPES[self._motion_combo.currentIndex()]
-
-    def getAngles(self):
-        try:
-            val = float(self._angle_input.text())
-        except ValueError:
-            val = 0.0
-
-        motion_idx = self._motion_combo.currentIndex()
-        if motion_idx == 0:
-            return (0.0, 0.0, -val)
-        elif motion_idx == 1:
-            return (0.0, -val, 0.0)
-        else:
-            return (val, 0.0, 0.0)
-
-    def setDeleteCallback(self, callback):
-        self._delete_btn.clicked.connect(lambda checked=False, cb=callback: cb())
-
-
-class PresetMotionInterface(ScrollArea):
+class AiAnalysisInterface(ScrollArea):
 
     MAX_CHART_POINTS = 10000
     SEMG_VALUE_SCALE = 1024.0
@@ -200,31 +122,14 @@ class PresetMotionInterface(ScrollArea):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setObjectName('rehabTrainingInterface')
+        self.setObjectName('aiAnalysisInterface')
         self.view = QWidget(self)
         self.vBoxLayout = QVBoxLayout(self.view)
-
-        self._cards = []
-        self._current_idx = -1
-
-        self._convert_callback = None
-        self._send_motor_callback = None
-
-        self._exec_timer = QTimer(self)
-        self._exec_timer.setSingleShot(False)
-        self._exec_timer.timeout.connect(self._executeNext)
-        self._interval_ms = 2000
-
-        self._status_label = None
-        self._progress_bar = None
-        self._current_label = None
         self._last_report_html = ''
-
         self.__initWidget()
         self.__initLayout()
 
     def __initWidget(self):
-        self.view.setObjectName('rehabTrainingView')
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setWidget(self.view)
         self.setWidgetResizable(True)
@@ -232,99 +137,26 @@ class PresetMotionInterface(ScrollArea):
         self.vBoxLayout.setSpacing(20)
 
     def __initLayout(self):
-        title = SubtitleLabel('预设动作训练')
+        title = SubtitleLabel('AI分析')
         self.vBoxLayout.addWidget(title)
-
-        top_row = QHBoxLayout()
-        top_row.setSpacing(20)
-
-        angle_card = self.__createAngleCard()
-        top_row.addWidget(angle_card, 60)
-
-        status_card = self.__createStatusCard()
-        top_row.addWidget(status_card, 40)
-
-        self.vBoxLayout.addLayout(top_row)
 
         semg_card = self.__createSemgCard()
         self.vBoxLayout.addWidget(semg_card)
 
-        btn_widget = self.__createButtons()
-        self.vBoxLayout.addWidget(btn_widget)
+        ai_card = self.__createThinkingCard()
+        self.vBoxLayout.addWidget(ai_card)
 
         self.vBoxLayout.addStretch()
 
-    def __createAngleCard(self):
-        card = CardWidget()
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(10)
-
-        header = SubtitleLabel('动作设定')
-        layout.addWidget(header)
-
-        self._cards_layout = QVBoxLayout()
-        self._cards_layout.setSpacing(8)
-        layout.addLayout(self._cards_layout)
-
-        for mt, ang in DEFAULT_MOTIONS:
-            self._addCard(mt, ang)
-
-        self._add_btn = PrimaryPushButton('+ 添加动作')
-        self._add_btn.clicked.connect(self._onAddCard)
-        layout.addWidget(self._add_btn)
-
-        return card
-
-    def _addCard(self, motion_type=0, angle=0.2):
-        card = AngleInputCard(motion_type, angle)
-        card.setDeleteCallback(lambda c=card: self._onDeleteCard(c))
-        self._cards.append(card)
-        self._cards_layout.addWidget(card)
-
-    def __createStatusCard(self):
-        card = CardWidget()
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
-
-        header = SubtitleLabel('执行状态')
-        layout.addWidget(header)
-
-        self._current_label = BodyLabel('等待开始')
-        self._current_label.setWordWrap(True)
-        layout.addWidget(self._current_label)
-
-        self._progress_bar = ProgressBar()
-        self._progress_bar.setRange(0, 100)
-        self._progress_bar.setValue(0)
-        self._progress_bar.setFixedHeight(10)
-        layout.addWidget(self._progress_bar)
-
-        status_row = QHBoxLayout()
-        status_row.setSpacing(8)
-        self._exec_spinner = EllipsisSpinner(14)
-        self._exec_spinner.hide()
-        status_row.addWidget(self._exec_spinner)
-        self._status_label = CaptionLabel('就绪')
-        status_row.addWidget(self._status_label)
-        status_row.addStretch()
-        layout.addLayout(status_row)
-
-        layout.addStretch()
-        return card
-
     def __createSemgCard(self):
-        """sEMG 实时监控卡片 - 全屏宽度（pyqtgraph）"""
         card = CardWidget()
         layout = QVBoxLayout(card)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(10)
 
-        header = SubtitleLabel('sEMG 实时监控')
+        header = SubtitleLabel('sEMG实时监控')
         layout.addWidget(header)
 
-        # pyqtgraph 折线图
         self._semg_plot = pg.PlotWidget()
         self._semg_plot.setBackground('w')
         self._semg_plot.showGrid(x=True, y=True, alpha=0.3)
@@ -334,30 +166,23 @@ class PresetMotionInterface(ScrollArea):
         self._semg_plot.setMinimumHeight(320)
         self._semg_plot.getPlotItem().hideButtons()
 
-        pen_wave = pg.mkPen(color='#0078D4', width=1)
-        self._semg_waveform_curve = self._semg_plot.plot(pen=pen_wave)
-        pen_rect = pg.mkPen(color='#0078D4', width=2)
-        self._semg_rectified_curve = self._semg_plot.plot(pen=pen_rect)
-        pen_env = pg.mkPen(color='#E74C3C', width=3)
-        self._semg_envelope_curve = self._semg_plot.plot(pen=pen_env)
-
+        self._semg_waveform_curve = self._semg_plot.plot(pen=pg.mkPen(color='#0078D4', width=1))
+        self._semg_rectified_curve = self._semg_plot.plot(pen=pg.mkPen(color='#0078D4', width=2))
+        self._semg_envelope_curve = self._semg_plot.plot(pen=pg.mkPen(color='#E74C3C', width=3))
         layout.addWidget(self._semg_plot)
 
         self._semg_value_label = BodyLabel('当前: ---')
         self._semg_value_label.setStyleSheet('font-size: 14px; font-weight: bold; color: #0078D4;')
         layout.addWidget(self._semg_value_label)
 
-        # 数据缓冲
         self._waveform_data = collections.deque(maxlen=self.MAX_CHART_POINTS)
         self._rectified_data = collections.deque(maxlen=self.MAX_CHART_POINTS)
         self._envelope_data = collections.deque(maxlen=self.MAX_CHART_POINTS)
         self._semg_point_count = 0
         self._semg_last_update = 0
-
         return card
 
     def append_sEMG_data(self, sample):
-        """添加sEMG数据点并更新折线图（pyqtgraph 批量 setData）"""
         if isinstance(sample, (tuple, list)) and len(sample) >= 3:
             waveform, rectified, envelope = sample[:3]
         else:
@@ -370,7 +195,6 @@ class PresetMotionInterface(ScrollArea):
         self._envelope_data.append(envelope)
         self._semg_point_count += 1
 
-        # 降频 ~60fps
         import time
         now = time.time()
         if now - self._semg_last_update < 0.016:
@@ -378,11 +202,7 @@ class PresetMotionInterface(ScrollArea):
         self._semg_last_update = now
 
         n = len(self._waveform_data)
-        if self._semg_point_count <= self.MAX_CHART_POINTS:
-            start_idx = 0
-        else:
-            start_idx = self._semg_point_count - n
-
+        start_idx = 0 if self._semg_point_count <= self.MAX_CHART_POINTS else self._semg_point_count - n
         x = np.arange(start_idx, self._semg_point_count)
         self._semg_waveform_curve.setData(x=x, y=np.array(self._waveform_data, dtype=np.float64))
         self._semg_rectified_curve.setData(x=x, y=np.array(self._rectified_data, dtype=np.float64))
@@ -407,7 +227,6 @@ class PresetMotionInterface(ScrollArea):
 
         self._think_widget = ThinkingWidget()
         header_row.addWidget(self._think_widget)
-
         header_row.addStretch()
 
         self._ai_trigger_btn = PrimaryPushButton('AI分析')
@@ -423,7 +242,6 @@ class PresetMotionInterface(ScrollArea):
 
         layout.addLayout(header_row)
 
-        # AI结果文本显示区域（只读，支持滚动）
         self._ai_result_edit = QTextEdit()
         self._ai_result_edit.setReadOnly(True)
         self._ai_result_edit.setMinimumHeight(380)
@@ -446,7 +264,6 @@ class PresetMotionInterface(ScrollArea):
             'code { background: #F3F4F6; padding: 1px 4px; border-radius: 4px; }'
         )
         layout.addWidget(self._ai_result_edit)
-
         return card
 
     @staticmethod
@@ -503,9 +320,7 @@ class PresetMotionInterface(ScrollArea):
         index = 0
 
         while index < len(lines):
-            line = lines[index]
-            stripped = line.strip()
-
+            stripped = lines[index].strip()
             if not stripped:
                 index += 1
                 continue
@@ -526,9 +341,7 @@ class PresetMotionInterface(ScrollArea):
             if stripped.startswith('- '):
                 items = []
                 while index < len(lines) and lines[index].strip().startswith('- '):
-                    items.append(
-                        f'<li>{cls._format_inline_markdown(lines[index].strip()[2:])}</li>'
-                    )
+                    items.append(f'<li>{cls._format_inline_markdown(lines[index].strip()[2:])}</li>')
                     index += 1
                 blocks.append(f"<ul>{''.join(items)}</ul>")
                 continue
@@ -557,6 +370,7 @@ class PresetMotionInterface(ScrollArea):
                     break
                 paragraph_lines.append(next_line)
                 index += 1
+
             paragraph = '<br/>'.join(cls._format_inline_markdown(part) for part in paragraph_lines)
             blocks.append(f'<p>{paragraph}</p>')
 
@@ -572,20 +386,17 @@ class PresetMotionInterface(ScrollArea):
         plain_text = self._ai_result_edit.toPlainText().strip()
         if not plain_text:
             self._setAiResultHtml(
-                self._render_markdown_html('[错误] 当前没有可导出的 AI 分析报告。')
+                self._render_markdown_html('[错误] 当前没有可导出的 AI 分析报告。'),
+                allow_export=False
             )
             return
 
         default_name = f"腰部康复训练分析报告_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            '导出 AI 分析报告',
-            default_name,
-            'PDF Files (*.pdf)'
+            self, '导出 AI 分析报告', default_name, 'PDF Files (*.pdf)'
         )
         if not file_path:
             return
-
         if not file_path.lower().endswith('.pdf'):
             file_path += '.pdf'
 
@@ -605,10 +416,8 @@ class PresetMotionInterface(ScrollArea):
                 self._render_markdown_html(f'[错误] PDF 导出失败: {e}'),
                 allow_export=False
             )
-            return
 
     def _onAiTrigger(self):
-        """点击触发AI分析按钮"""
         if hasattr(self, '_ai_analyzer') and self._ai_analyzer:
             self._ai_analyzer.trigger_analysis()
         else:
@@ -618,11 +427,9 @@ class PresetMotionInterface(ScrollArea):
             )
 
     def set_ai_analyzer(self, analyzer):
-        """连接AiAnalyzer实例"""
         self._ai_analyzer = analyzer
 
     def on_ai_thinking(self, thinking: bool):
-        """AI思考状态变化"""
         if thinking:
             self._think_widget.start()
             self._ai_trigger_btn.setEnabled(False)
@@ -635,127 +442,10 @@ class PresetMotionInterface(ScrollArea):
             self._ai_trigger_btn.setEnabled(True)
 
     def on_ai_result(self, text: str):
-        """AI分析结果就绪"""
         self._setAiResultHtml(self._render_markdown_html(text))
 
     def on_ai_error(self, error: str):
-        """AI分析出错"""
         self._setAiResultHtml(
             self._render_markdown_html(f'[错误] {error}'),
             allow_export=False
         )
-
-    def __createButtons(self):
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-
-        self._start_btn = PrimaryPushButton('开始')
-        self._start_btn.setFixedWidth(100)
-        self._start_btn.clicked.connect(self._onStart)
-        layout.addWidget(self._start_btn)
-
-        self._stop_btn = PushButton('停止')
-        self._stop_btn.setFixedWidth(100)
-        self._stop_btn.clicked.connect(self._onStop)
-        layout.addWidget(self._stop_btn)
-
-        layout.addStretch()
-        return widget
-
-    def _onAddCard(self):
-        self._addCard()
-
-    def _onDeleteCard(self, card):
-        if len(self._cards) <= 1:
-            return
-        self._cards_layout.removeWidget(card)
-        self._cards.remove(card)
-        card.deleteLater()
-
-    def _onStart(self):
-        if len(self._cards) == 0:
-            return
-
-        self._current_idx = 0
-        self._start_btn.setEnabled(False)
-        self._progress_bar.setValue(0)
-        self._think_widget.stop()
-
-        # 清空AI分析器的缓存，开始全新采集
-        if hasattr(self, '_ai_analyzer') and self._ai_analyzer:
-            self._ai_analyzer.clear_buffer()
-            # 构建动作序列上下文
-            motion_names = [card.getName() for card in self._cards]
-            context = "动作序列: " + ", ".join(motion_names)
-            self._ai_analyzer.set_session_context(context)
-
-        self._executeCurrent()
-
-    def _executeCurrent(self):
-        if self._current_idx >= len(self._cards):
-            self._onComplete()
-            return
-
-        total = len(self._cards)
-        card = self._cards[self._current_idx]
-        name = card.getName()
-        progress = int(self._current_idx / total * 100)
-        self._progress_bar.setValue(progress)
-        self._current_label.setText(
-            f'{name} ({self._current_idx + 1}/{total})'
-        )
-        self._status_label.setText('执行中')
-        self._exec_spinner.show()
-
-        alpha, beta, gamma = card.getAngles()
-
-        if self._convert_callback:
-            motor_values = self._convert_callback(alpha, beta, gamma)
-        else:
-            motor_values = {'LF': 0.0, 'LB': 0.0, 'RB': 0.0, 'RF': 0.0}
-
-        if self._send_motor_callback:
-            self._send_motor_callback(
-                motor_values.get('RB', 0.0),
-                motor_values.get('RF', 0.0),
-                motor_values.get('LB', 0.0),
-                motor_values.get('LF', 0.0),
-            )
-
-        self._current_idx += 1
-        self._exec_timer.start(self._interval_ms)
-
-    def _executeNext(self):
-        self._exec_timer.stop()
-        self._executeCurrent()
-
-    def _onComplete(self):
-        self._exec_timer.stop()
-        self._exec_spinner.hide()
-        self._progress_bar.setValue(100)
-        self._current_label.setText('已完成')
-        self._status_label.setText('✔ 已完成')
-        self._start_btn.setEnabled(True)
-        self._current_idx = -1
-
-        # 动作执行完成，自动触发AI分析
-        if hasattr(self, '_ai_analyzer') and self._ai_analyzer:
-            self._onAiTrigger()
-
-    def _onStop(self):
-        self._exec_timer.stop()
-        self._exec_spinner.hide()
-        self._current_idx = -1
-        self._progress_bar.setValue(0)
-        self._current_label.setText('已停止')
-        self._status_label.setText('就绪')
-        self._start_btn.setEnabled(True)
-        self._think_widget.stop()
-
-    def setConvertCallback(self, callback):
-        self._convert_callback = callback
-
-    def setSendMotorCallback(self, callback):
-        self._send_motor_callback = callback
