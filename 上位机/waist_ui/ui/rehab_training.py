@@ -700,12 +700,10 @@ class PresetMotionInterface(ScrollArea):
 
         total = len(self._cards)
         card = self._cards[self._current_idx]
-        name = card.getName()
+        current_step = self._current_idx + 1
         progress = int(self._current_idx / total * 100)
         self._progress_bar.setValue(progress)
-        self._current_label.setText(
-            f'{name} ({self._current_idx + 1}/{total})'
-        )
+        self._current_label.setText(f'正在执行动作{current_step}')
         self._status_label.setText('执行中')
         self._exec_spinner.show()
 
@@ -735,8 +733,8 @@ class PresetMotionInterface(ScrollArea):
         self._exec_timer.stop()
         self._exec_spinner.hide()
         self._progress_bar.setValue(100)
-        self._current_label.setText('已完成')
-        self._status_label.setText('✔ 已完成')
+        self._current_label.setText('完成')
+        self._status_label.setText('完成')
         self._start_btn.setEnabled(True)
         self._current_idx = -1
 
