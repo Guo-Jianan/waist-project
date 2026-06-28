@@ -2,18 +2,21 @@
 """
 主程序入口
 初始化应用程序，创建主窗口
-2026/5/19
+2026/6/28
 """
 
 import sys
 from pathlib import Path
 from PySide6.QtWidgets import QApplication
-from ui.main_window import MainWindow
-def main():
+
+
+def main(): 
     """主函数"""
     app = QApplication(sys.argv)
 
     app.setApplicationName('康复医疗仪表盘')
+    from ui.main_window import MainWindow
+
     # 加载样式
     qss_file = Path(__file__).parent / 'resource' / 'light' / 'demo.qss'
     if qss_file.exists():

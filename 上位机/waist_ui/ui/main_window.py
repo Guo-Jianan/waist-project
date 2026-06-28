@@ -15,11 +15,6 @@ from qfluentwidgets import (
 )
 
 from config.settings import Settings
-from ui.ai_analysis import AiAnalysisInterface
-from ui.data_monitor import DataMonitorInterface
-from ui.log_interface import LogInterface
-from ui.rehab_training import PresetMotionInterface
-from ui.user_custom import UserCustomInterface
 
 
 class MainWindow(FluentWindow):
@@ -39,6 +34,12 @@ class MainWindow(FluentWindow):
         self.setWindowTitle('康复医疗仪表盘')
 
     def __initNavigation(self):
+        from ui.ai_analysis import AiAnalysisInterface
+        from ui.data_monitor import DataMonitorInterface
+        from ui.log_interface import LogInterface
+        from ui.rehab_training import PresetMotionInterface
+        from ui.user_custom import UserCustomInterface
+
         self.dataMonitorInterface = DataMonitorInterface(self)
         self.logInterface = LogInterface(self)
         self.rehabTrainingInterface = PresetMotionInterface(self)
