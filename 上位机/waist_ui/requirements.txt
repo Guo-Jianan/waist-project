@@ -1,5 +1,6 @@
 PySide6
 PyQt-Fluent-Widgets
+pyqtgraph
 paho-mqtt
 python-dotenv
 numpy
