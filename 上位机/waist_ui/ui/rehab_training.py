@@ -681,7 +681,6 @@ class PresetMotionInterface(ScrollArea):
         self._current_idx = 0
         self._start_btn.setEnabled(False)
         self._progress_bar.setValue(0)
-        self._think_widget.stop()
 
         # 清空AI分析器的缓存，开始全新采集
         if hasattr(self, '_ai_analyzer') and self._ai_analyzer:
@@ -750,7 +749,6 @@ class PresetMotionInterface(ScrollArea):
         self._current_label.setText('已停止')
         self._status_label.setText('就绪')
         self._start_btn.setEnabled(True)
-        self._think_widget.stop()
 
     def setConvertCallback(self, callback):
         self._convert_callback = callback
