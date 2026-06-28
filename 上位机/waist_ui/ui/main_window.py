@@ -5,6 +5,13 @@
 
 from pathlib import Path
 
+try:
+    from app_bootstrap import ensure_qapplication
+except ImportError:  # pragma: no cover
+    from ..app_bootstrap import ensure_qapplication
+
+ensure_qapplication()
+
 from PySide6.QtCore import Qt
 from qfluentwidgets import (
     FluentIcon,
