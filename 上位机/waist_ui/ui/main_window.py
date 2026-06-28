@@ -1,6 +1,6 @@
 # coding: utf-8
 """
-主窗口，包含数据监测、通信日志、康复训练、趣味游戏和用户自定义界面。
+主窗口，包含数据监测、通信日志、康复训练、AI分析和用户自定义界面。
 """
 
 from pathlib import Path
@@ -15,8 +15,8 @@ from qfluentwidgets import (
 )
 
 from config.settings import Settings
+from ui.ai_analysis import AiAnalysisInterface
 from ui.data_monitor import DataMonitorInterface
-from ui.fun_game import FunGameInterface
 from ui.log_interface import LogInterface
 from ui.rehab_training import PresetMotionInterface
 from ui.user_custom import UserCustomInterface
@@ -42,7 +42,7 @@ class MainWindow(FluentWindow):
         self.dataMonitorInterface = DataMonitorInterface(self)
         self.logInterface = LogInterface(self)
         self.rehabTrainingInterface = PresetMotionInterface(self)
-        self.funGameInterface = FunGameInterface(self)
+        self.aiAnalysisInterface = AiAnalysisInterface(self)
         self.userCustomInterface = UserCustomInterface(self)
 
         self.addSubInterface(
@@ -61,9 +61,9 @@ class MainWindow(FluentWindow):
             '康复训练',
         )
         self.addSubInterface(
-            self.funGameInterface,
-            FluentIcon.EMOJI_TAB_SYMBOLS,
-            '趣味游戏',
+            self.aiAnalysisInterface,
+            FluentIcon.ROBOT,
+            'AI分析',
         )
         self.addSubInterface(
             self.userCustomInterface,
@@ -99,12 +99,18 @@ class MainWindow(FluentWindow):
                 self.comm_client.semg_display_signal.connect(
                     self.rehabTrainingInterface.append_sEMG_data
                 )
+                self.comm_client.semg_display_signal.connect(
+                    self.aiAnalysisInterface.append_sEMG_data
+                )
             else:
                 self.comm_client.semg_data_received.connect(
                     self.dataMonitorInterface.append_sEMG_data
                 )
                 self.comm_client.semg_data_received.connect(
                     self.rehabTrainingInterface.append_sEMG_data
+                )
+                self.comm_client.semg_data_received.connect(
+                    self.aiAnalysisInterface.append_sEMG_data
                 )
 
         self.dataMonitorInterface.setForceChangedCallback(self.__onForceChanged)
@@ -156,10 +162,11 @@ class MainWindow(FluentWindow):
         elif hasattr(self.comm_client, 'semg_data_received'):
             self.comm_client.semg_data_received.connect(self.ai_analyzer.add_semg_data)
 
-        self.ai_analyzer.thinking_changed.connect(self.rehabTrainingInterface.on_ai_thinking)
-        self.ai_analyzer.result_ready.connect(self.rehabTrainingInterface.on_ai_result)
-        self.ai_analyzer.error_occurred.connect(self.rehabTrainingInterface.on_ai_error)
+        self.ai_analyzer.thinking_changed.connect(self.aiAnalysisInterface.on_ai_thinking)
+        self.ai_analyzer.result_ready.connect(self.aiAnalysisInterface.on_ai_result)
+        self.ai_analyzer.error_occurred.connect(self.aiAnalysisInterface.on_ai_error)
         self.rehabTrainingInterface.set_ai_analyzer(self.ai_analyzer)
+        self.aiAnalysisInterface.set_ai_analyzer(self.ai_analyzer)
 
         self.logInterface.addLog(
             'INFO',
