@@ -28,8 +28,8 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
     if (hadc == &hadc1) {
         Actuator_UpdateFeedback(&ActuatorLF, AdcRec[0]);  // Rank1: PC1 = LF
         Actuator_UpdateFeedback(&ActuatorLB, AdcRec[1]);  // Rank2: PC2 = LB
-        Actuator_UpdateFeedback(&ActuatorRF, AdcRec[2]);  // Rank3: PA2 = RF
-        Actuator_UpdateFeedback(&ActuatorRB, AdcRec[3]);  // Rank4: PA3 = RB
+        Actuator_UpdateFeedback(&ActuatorRF, AdcRec[3]);  // Rank3: PA2 = RF
+        Actuator_UpdateFeedback(&ActuatorRB, AdcRec[2]);  // Rank4: PA3 = RB
     }
 }
 

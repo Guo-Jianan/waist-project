@@ -99,18 +99,12 @@ class MainWindow(FluentWindow):
                 self.comm_client.semg_display_signal.connect(
                     self.rehabTrainingInterface.append_sEMG_data
                 )
-                self.comm_client.semg_display_signal.connect(
-                    self.aiAnalysisInterface.append_sEMG_data
-                )
             else:
                 self.comm_client.semg_data_received.connect(
                     self.dataMonitorInterface.append_sEMG_data
                 )
                 self.comm_client.semg_data_received.connect(
                     self.rehabTrainingInterface.append_sEMG_data
-                )
-                self.comm_client.semg_data_received.connect(
-                    self.aiAnalysisInterface.append_sEMG_data
                 )
 
         self.dataMonitorInterface.setForceChangedCallback(self.__onForceChanged)
