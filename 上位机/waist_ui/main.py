@@ -7,12 +7,17 @@
 
 import sys
 from pathlib import Path
-from PySide6.QtWidgets import QApplication
+
+CURRENT_DIR = Path(__file__).resolve().parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
+
+from app_bootstrap import ensure_qapplication
 
 
 def main(): 
     """主函数"""
-    app = QApplication(sys.argv)
+    app = ensure_qapplication(sys.argv)
 
     app.setApplicationName('康复医疗仪表盘')
     from ui.main_window import MainWindow
