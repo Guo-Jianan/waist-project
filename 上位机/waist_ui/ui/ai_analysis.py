@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 
 from PySide6.QtCore import Qt, QTimer, QPointF, QMarginsF
-from PySide6.QtGui import QColor, QPainter, QBrush, QPageLayout, QPageSize
+from PySide6.QtGui import QColor, QPainter, QBrush, QTextDocument, QPageSize
 from PySide6.QtPrintSupport import QPrinter
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QFileDialog
 from qfluentwidgets import (
@@ -324,22 +324,35 @@ class AiAnalysisInterface(ScrollArea):
         if not file_path.lower().endswith('.pdf'):
             file_path += '.pdf'
 
-        printer = QPrinter(QPrinter.HighResolution)
-        printer.setOutputFormat(QPrinter.PdfFormat)
-        printer.setOutputFileName(file_path)
-        printer.setPageSize(QPageSize(QPageSize.A4))
-        printer.setPageMargins(QMarginsF(15, 15, 15, 15), QPageLayout.Millimeter)
-
-        document = self._ai_result_edit.document().clone()
-        document.setPageSize(printer.pageRect(QPrinter.Point).size())
+        self._export_pdf_btn.setEnabled(False)
+        self._export_pdf_btn.setText('导出中...')
 
         try:
-            document.print_(printer)
+            doc = QTextDocument()
+            doc.setHtml(self._ai_result_edit.toHtml())
+            printer = QPrinter()
+            printer.setOutputFormat(QPrinter.PdfFormat)
+            printer.setOutputFileName(file_path)
+            printer.setPageSize(QPageSize(QPageSize.A4))
+            doc.print_(printer)
+            self._onExportFinished()
         except Exception as e:
-            self._setAiResultHtml(
-                self._render_markdown_html(f'[错误] PDF 导出失败: {e}'),
-                allow_export=False
-            )
+            self._onExportError(str(e))
+
+    def _onExportFinished(self):
+        self._export_pdf_btn.setText('导出PDF')
+        self._export_pdf_btn.setEnabled(True)
+        self._setAiResultHtml(
+            self._render_markdown_html(f'[完成] PDF 已成功导出。'),
+        )
+
+    def _onExportError(self, msg: str):
+        self._export_pdf_btn.setText('导出PDF')
+        self._export_pdf_btn.setEnabled(True)
+        self._setAiResultHtml(
+            self._render_markdown_html(f'[错误] PDF 导出失败: {msg}'),
+            allow_export=False
+        )
 
     def _onAiTrigger(self):
         if hasattr(self, '_ai_analyzer') and self._ai_analyzer:
