@@ -1,6 +1,6 @@
 # coding: utf-8
 """
-主窗口，包含数据监测、通信日志、康复训练、AI分析和用户自定义界面。
+主窗口，包含数据监测、康复训练、AI分析、康复记录、通信日志和用户自定义界面。
 """
 
 from pathlib import Path
@@ -18,7 +18,6 @@ from qfluentwidgets import (
     FluentWindow,
     InfoBar,
     InfoBarPosition,
-    NavigationItemPosition,
 )
 
 from config.settings import Settings
@@ -31,6 +30,8 @@ class MainWindow(FluentWindow):
         super().__init__()
         self.comm_client = None
         self.tcp_client = None
+        self.ai_analyzer = None
+        self._active_record_id = None
         self.__initWindow()
         self.__initNavigation()
         self.__initCommunication()
@@ -44,45 +45,24 @@ class MainWindow(FluentWindow):
         from ui.ai_analysis import AiAnalysisInterface
         from ui.data_monitor import DataMonitorInterface
         from ui.log_interface import LogInterface
+        from ui.rehab_record import RehabRecordInterface
         from ui.rehab_training import PresetMotionInterface
-        from ui.user_custom import UserCustomInterface
 
         self.dataMonitorInterface = DataMonitorInterface(self)
-        self.logInterface = LogInterface(self)
         self.rehabTrainingInterface = PresetMotionInterface(self)
         self.aiAnalysisInterface = AiAnalysisInterface(self)
-        self.userCustomInterface = UserCustomInterface(self)
+        self.rehabRecordInterface = RehabRecordInterface(self)
+        self.logInterface = LogInterface(self)
 
-        self.addSubInterface(
-            self.dataMonitorInterface,
-            FluentIcon.SPEED_HIGH,
-            '数据监测',
-        )
-        self.addSubInterface(
-            self.logInterface,
-            FluentIcon.CHAT,
-            '通信日志',
-        )
-        self.addSubInterface(
-            self.rehabTrainingInterface,
-            FluentIcon.HEART,
-            '康复训练',
-        )
-        self.addSubInterface(
-            self.aiAnalysisInterface,
-            FluentIcon.ROBOT,
-            'AI分析',
-        )
-        self.addSubInterface(
-            self.userCustomInterface,
-            FluentIcon.SETTING,
-            '用户自定义',
-            NavigationItemPosition.BOTTOM,
-        )
+        self.addSubInterface(self.dataMonitorInterface, FluentIcon.SPEED_HIGH, '数据监测')
+        self.addSubInterface(self.rehabTrainingInterface, FluentIcon.HEART, '康复训练')
+        self.addSubInterface(self.aiAnalysisInterface, FluentIcon.ROBOT, 'AI分析')
+        self.addSubInterface(self.rehabRecordInterface, FluentIcon.DOCUMENT, '康复记录')
+        self.addSubInterface(self.logInterface, FluentIcon.CHAT, '通信日志')
 
     def __initCommunication(self):
-        from communication import MQTTClient, TCPClient
         from backend.kinematics import Kinematics, angles_to_motor_commands
+        from communication import MQTTClient, TCPClient
 
         self.comm_mode = Settings.get_comm_mode()
         if self.comm_mode == 'mqtt':
@@ -101,19 +81,11 @@ class MainWindow(FluentWindow):
 
         if hasattr(self.comm_client, 'semg_data_received'):
             if hasattr(self.comm_client, 'semg_display_signal'):
-                self.comm_client.semg_display_signal.connect(
-                    self.dataMonitorInterface.append_sEMG_data
-                )
-                self.comm_client.semg_display_signal.connect(
-                    self.rehabTrainingInterface.append_sEMG_data
-                )
+                self.comm_client.semg_display_signal.connect(self.dataMonitorInterface.append_sEMG_data)
+                self.comm_client.semg_display_signal.connect(self.rehabTrainingInterface.append_sEMG_data)
             else:
-                self.comm_client.semg_data_received.connect(
-                    self.dataMonitorInterface.append_sEMG_data
-                )
-                self.comm_client.semg_data_received.connect(
-                    self.rehabTrainingInterface.append_sEMG_data
-                )
+                self.comm_client.semg_data_received.connect(self.dataMonitorInterface.append_sEMG_data)
+                self.comm_client.semg_data_received.connect(self.rehabTrainingInterface.append_sEMG_data)
 
         self.dataMonitorInterface.setForceChangedCallback(self.__onForceChanged)
         self.dataMonitorInterface.setResetCallback(self.__onReset)
@@ -128,6 +100,7 @@ class MainWindow(FluentWindow):
         self.rehabTrainingInterface.setSendMotorCallback(
             lambda rb, rf, lb, lf: self.comm_client.send_motor_cmd(rb, rf, lb, lf)
         )
+        self.rehabTrainingInterface.training_started.connect(self.__onTrainingStarted)
 
         self.__initAiAnalyzer()
 
@@ -140,7 +113,6 @@ class MainWindow(FluentWindow):
         self.logInterface.addLog('INFO', '请在通信日志界面输入 IP 地址和端口，点击连接。')
 
     def __initAiAnalyzer(self):
-        """初始化 Ollama sEMG 分析模块。"""
         from backend.ai_analyzer import AiAnalyzer
 
         ai_config = Settings.get_ai_config()
@@ -164,9 +136,10 @@ class MainWindow(FluentWindow):
         elif hasattr(self.comm_client, 'semg_data_received'):
             self.comm_client.semg_data_received.connect(self.ai_analyzer.add_semg_data)
 
-        self.ai_analyzer.thinking_changed.connect(self.aiAnalysisInterface.on_ai_thinking)
-        self.ai_analyzer.result_ready.connect(self.aiAnalysisInterface.on_ai_result)
-        self.ai_analyzer.error_occurred.connect(self.aiAnalysisInterface.on_ai_error)
+        self.ai_analyzer.thinking_changed.connect(self.__onAiThinkingChanged)
+        self.ai_analyzer.result_ready.connect(self.__onAiResultReady)
+        self.ai_analyzer.error_occurred.connect(self.__onAiErrorOccurred)
+
         self.rehabTrainingInterface.set_ai_analyzer(self.ai_analyzer)
         self.aiAnalysisInterface.set_ai_analyzer(self.ai_analyzer)
 
@@ -174,6 +147,25 @@ class MainWindow(FluentWindow):
             'INFO',
             f'AI 分析模块已初始化: 模型={ai_config["model"]}, Ollama={ai_config["ollama_url"]}',
         )
+
+    def __onTrainingStarted(self, info):
+        self._active_record_id = info['record_id']
+        self.rehabRecordInterface.add_record(info)
+
+    def __onAiThinkingChanged(self, thinking):
+        self.aiAnalysisInterface.on_ai_thinking(thinking)
+
+    def __onAiResultReady(self, text):
+        self.aiAnalysisInterface.on_ai_result(text)
+        if self._active_record_id:
+            self.rehabRecordInterface.set_record_report(self._active_record_id, text)
+            self._active_record_id = None
+
+    def __onAiErrorOccurred(self, error):
+        self.aiAnalysisInterface.on_ai_error(error)
+        if self._active_record_id:
+            self.rehabRecordInterface.set_record_report(self._active_record_id, f'[错误] {error}')
+            self._active_record_id = None
 
     def __onConnectClicked(self, ip, port):
         if self.comm_mode == 'tcp' and hasattr(self.comm_client, 'set_server'):
@@ -211,7 +203,7 @@ class MainWindow(FluentWindow):
         self.logInterface.addLog('WARNING', '连接已断开')
 
     def __onRawDataReceived(self, data):
-        hex_str = ' '.join(f'{b:02X}' for b in data)
+        hex_str = ' '.join(f'{value:02X}' for value in data)
         self.logInterface.addLog('DEBUG', f'[RX] {hex_str}')
 
     def __onRxDataChanged(self, data):

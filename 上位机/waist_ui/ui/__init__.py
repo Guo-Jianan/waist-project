@@ -10,4 +10,5 @@ __all__ = [
     'FunGameInterface',
     'UserCustomInterface',
     'AiAnalysisInterface',
+    'RehabRecordInterface',
 ]

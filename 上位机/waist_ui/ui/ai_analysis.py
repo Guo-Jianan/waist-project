@@ -1,15 +1,11 @@
 # coding: utf-8
 import html
 import re
-from datetime import datetime
 
-from PySide6.QtCore import Qt, QTimer, QPointF, QMarginsF
-from PySide6.QtGui import QColor, QPainter, QBrush, QTextDocument, QPageSize
-from PySide6.QtPrintSupport import QPrinter
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QFileDialog
-from qfluentwidgets import (
-    ScrollArea, SubtitleLabel, BodyLabel, CardWidget, PrimaryPushButton, PushButton
-)
+from PySide6.QtCore import Qt, QTimer, QPointF
+from PySide6.QtGui import QColor, QPainter, QBrush
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTextEdit
+from qfluentwidgets import ScrollArea, SubtitleLabel, BodyLabel, CardWidget, PrimaryPushButton
 
 _ELLIPSIS_COLORS = ['#e15b64', '#f47e60', '#f8b26a', '#abbd81', '#e15b64']
 
@@ -18,8 +14,8 @@ class EllipsisSpinner(QWidget):
 
     def __init__(self, size=18, parent=None):
         super().__init__(parent)
-        w = size + (len(_ELLIPSIS_COLORS) - 1) * 8
-        self.setFixedSize(w, size)
+        width = size + (len(_ELLIPSIS_COLORS) - 1) * 8
+        self.setFixedSize(width, size)
         self._phase = 0
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
@@ -31,30 +27,30 @@ class EllipsisSpinner(QWidget):
         self.update()
 
     def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        cx = self.width() / 2.0
-        cy = self.height() / 2.0
-        n = len(_ELLIPSIS_COLORS)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        center_x = self.width() / 2.0
+        center_y = self.height() / 2.0
+        count = len(_ELLIPSIS_COLORS)
         spacing = 8
-        total_w = (n - 1) * spacing
-        start_x = cx - total_w / 2.0
+        total_width = (count - 1) * spacing
+        start_x = center_x - total_width / 2.0
         period = 18
 
-        for i in range(n):
-            offset = (self._phase - i * (period // n)) % period
-            t = offset / float(period)
-            scale = t * 2.0 if t < 0.5 else (1.0 - t) * 2.0
-            r = 2.0 + scale * 5.0
-            x = start_x + i * spacing
+        for index, color_value in enumerate(_ELLIPSIS_COLORS):
+            offset = (self._phase - index * (period // count)) % period
+            progress = offset / float(period)
+            scale = progress * 2.0 if progress < 0.5 else (1.0 - progress) * 2.0
+            radius = 2.0 + scale * 5.0
+            x = start_x + index * spacing
 
-            color = QColor(_ELLIPSIS_COLORS[i])
+            color = QColor(color_value)
             color.setAlpha(int(80 + scale * 175))
-            p.setPen(Qt.NoPen)
-            p.setBrush(QBrush(color))
-            p.drawEllipse(QPointF(x, cy), r, r)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(color))
+            painter.drawEllipse(QPointF(x, center_y), radius, radius)
 
-        p.end()
+        painter.end()
 
     def start(self):
         self._timer.start()
@@ -120,6 +116,7 @@ class AiAnalysisInterface(ScrollArea):
         self.setObjectName('aiAnalysisInterface')
         self.view = QWidget(self)
         self.vBoxLayout = QVBoxLayout(self.view)
+        self._ai_analyzer = None
         self._last_report_html = ''
         self.__initWidget()
         self.__initLayout()
@@ -134,13 +131,10 @@ class AiAnalysisInterface(ScrollArea):
     def __initLayout(self):
         title = SubtitleLabel('AI分析')
         self.vBoxLayout.addWidget(title)
-
-        ai_card = self.__createThinkingCard()
-        self.vBoxLayout.addWidget(ai_card)
-
+        self.vBoxLayout.addWidget(self.__createAnalysisCard())
         self.vBoxLayout.addStretch()
 
-    def __createThinkingCard(self):
+    def __createAnalysisCard(self):
         card = CardWidget()
         layout = QVBoxLayout(card)
         layout.setContentsMargins(20, 16, 20, 16)
@@ -154,15 +148,9 @@ class AiAnalysisInterface(ScrollArea):
         header_row.addStretch()
 
         self._ai_trigger_btn = PrimaryPushButton('AI分析')
-        self._ai_trigger_btn.setFixedWidth(108)
+        self._ai_trigger_btn.setFixedWidth(120)
         self._ai_trigger_btn.clicked.connect(self._onAiTrigger)
         header_row.addWidget(self._ai_trigger_btn)
-
-        self._export_pdf_btn = PushButton('导出PDF')
-        self._export_pdf_btn.setFixedWidth(108)
-        self._export_pdf_btn.setEnabled(False)
-        self._export_pdf_btn.clicked.connect(self._exportAiReportPdf)
-        header_row.addWidget(self._export_pdf_btn)
 
         layout.addLayout(header_row)
 
@@ -238,7 +226,7 @@ class AiAnalysisInterface(ScrollArea):
         return ''.join(parts), index
 
     @classmethod
-    def _render_markdown_html(cls, text: str) -> str:
+    def render_report_html(cls, text: str) -> str:
         lines = text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
         blocks = []
         index = 0
@@ -300,68 +288,18 @@ class AiAnalysisInterface(ScrollArea):
 
         return f"<html><body>{''.join(blocks)}</body></html>"
 
-    def _setAiResultHtml(self, html_text: str, allow_export: bool = True):
+    def _setAiResultHtml(self, html_text: str):
         self._last_report_html = html_text
         self._ai_result_edit.setHtml(html_text)
-        has_content = bool(self._ai_result_edit.toPlainText().strip())
-        self._export_pdf_btn.setEnabled(allow_export and has_content)
 
-    def _exportAiReportPdf(self):
-        plain_text = self._ai_result_edit.toPlainText().strip()
-        if not plain_text:
-            self._setAiResultHtml(
-                self._render_markdown_html('[错误] 当前没有可导出的 AI 分析报告。'),
-                allow_export=False
-            )
-            return
-
-        default_name = f"腰部康复训练分析报告_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, '导出 AI 分析报告', default_name, 'PDF Files (*.pdf)'
-        )
-        if not file_path:
-            return
-        if not file_path.lower().endswith('.pdf'):
-            file_path += '.pdf'
-
-        self._export_pdf_btn.setEnabled(False)
-        self._export_pdf_btn.setText('导出中...')
-
-        try:
-            doc = QTextDocument()
-            doc.setHtml(self._ai_result_edit.toHtml())
-            printer = QPrinter()
-            printer.setOutputFormat(QPrinter.PdfFormat)
-            printer.setOutputFileName(file_path)
-            printer.setPageSize(QPageSize(QPageSize.A4))
-            doc.print_(printer)
-            self._onExportFinished()
-        except Exception as e:
-            self._onExportError(str(e))
-
-    def _onExportFinished(self):
-        self._export_pdf_btn.setText('导出PDF')
-        self._export_pdf_btn.setEnabled(True)
-        self._setAiResultHtml(
-            self._render_markdown_html(f'[完成] PDF 已成功导出。'),
-        )
-
-    def _onExportError(self, msg: str):
-        self._export_pdf_btn.setText('导出PDF')
-        self._export_pdf_btn.setEnabled(True)
-        self._setAiResultHtml(
-            self._render_markdown_html(f'[错误] PDF 导出失败: {msg}'),
-            allow_export=False
-        )
+    def display_report(self, text: str):
+        self._setAiResultHtml(self.render_report_html(text))
 
     def _onAiTrigger(self):
-        if hasattr(self, '_ai_analyzer') and self._ai_analyzer:
+        if self._ai_analyzer:
             self._ai_analyzer.trigger_analysis()
         else:
-            self._setAiResultHtml(
-                self._render_markdown_html('[错误] AI分析模块未连接，请检查配置。'),
-                allow_export=False
-            )
+            self.display_report('[错误] AI分析模块未连接，请检查配置。')
 
     def set_ai_analyzer(self, analyzer):
         self._ai_analyzer = analyzer
@@ -370,19 +308,13 @@ class AiAnalysisInterface(ScrollArea):
         if thinking:
             self._think_widget.start()
             self._ai_trigger_btn.setEnabled(False)
-            self._setAiResultHtml(
-                self._render_markdown_html('AI 分析中，请稍候...'),
-                allow_export=False
-            )
+            self.display_report('AI 分析中，请稍候...')
         else:
             self._think_widget.stop()
             self._ai_trigger_btn.setEnabled(True)
 
     def on_ai_result(self, text: str):
-        self._setAiResultHtml(self._render_markdown_html(text))
+        self.display_report(text)
 
     def on_ai_error(self, error: str):
-        self._setAiResultHtml(
-            self._render_markdown_html(f'[错误] {error}'),
-            allow_export=False
-        )
+        self.display_report(f'[错误] {error}')
